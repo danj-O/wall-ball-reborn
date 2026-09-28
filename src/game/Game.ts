@@ -1,10 +1,11 @@
-import { movePlayerWithCollision, territoryAt, type ArenaDefinition, type Team, type Vec2 } from './arena.ts';
+import { localPoint, territoryAt, WALL_HEIGHT, type ArenaDefinition, type Team, type Vec2 } from './arena.ts';
 import { createEconomyState, tickEconomy, transferOnTerritoryTag, type EconomyState } from './economy.ts';
 import type { GameMode, GameState } from './GameMode.ts';
 import {
-  AIM_DEAD_ZONE, bombLandingSurface, createDeploymentState, DEPLOYABLES, tickDeploymentState,
+  AIM_DEAD_ZONE, createDeploymentState, DEPLOYABLES, tickDeploymentState,
   type DeployableId, type DeploymentPreview, type DeploymentState, type PlacementContext,
 } from './deployables.ts';
+import { PhysicsWorld } from './PhysicsWorld.ts';
 
 export type MoveInput = Record<Team, Vec2>;
 
@@ -18,10 +19,10 @@ export class Game {
   state: GameState;
   deployments: DeploymentState;
   economy: EconomyState;
+  physics: PhysicsWorld;
   lastTheft: { sequence: number; text: string } | null = null;
   private theftSequence = 0;
   private nextEntityId = 0;
-  private velocity: Record<Team, Vec2> = { red: { x: 0, z: 0 }, blue: { x: 0, z: 0 } };
 
   constructor(arena: ArenaDefinition, mode: GameMode) {
     this.arena = arena;
@@ -29,6 +30,7 @@ export class Game {
     this.state = mode.createState(arena);
     this.deployments = createDeploymentState(arena);
     this.economy = createEconomyState(arena);
+    this.physics = new PhysicsWorld(arena, this.state, this.deployments, this.playerRadius);
   }
 
   reset(): void {
@@ -38,7 +40,7 @@ export class Game {
     this.lastTheft = null;
     this.theftSequence = 0;
     this.nextEntityId = 0;
-    this.velocity = { red: { x: 0, z: 0 }, blue: { x: 0, z: 0 } };
+    this.physics = new PhysicsWorld(this.arena, this.state, this.deployments, this.playerRadius);
   }
 
   beginDeployAim(team: Team, id: DeployableId): void {
@@ -71,8 +73,13 @@ export class Game {
     const definition = DEPLOYABLES[preview.definitionId];
     // Rechecked immediately before spending inventory.
     const entity = definition.deploy(`${team}-${++this.nextEntityId}`, team, preview, this.state.players[team].position);
-    if (entity.kind === 'wall') this.deployments.walls.push(entity);
-    else this.deployments.bombs.push(entity);
+    if (entity.kind === 'wall') {
+      this.deployments.walls.push(entity);
+      this.physics.syncWalls(this.deployments.walls);
+    } else {
+      this.deployments.bombs.push(entity);
+      this.physics.addBomb(entity);
+    }
     this.deployments.inventory[team][definition.id] -= definition.inventoryCost;
     return 'placed';
   }
@@ -97,9 +104,16 @@ export class Game {
       position: { x: player.position.x + direction.x * distance, z: player.position.z + direction.z * distance },
       rotation: Math.atan2(direction.x, direction.z),
     };
+    const wallTop = this.deployments.walls.some(wall => {
+      const local = localPoint(placement.position, wall);
+      return Math.abs(local.x) <= wall.width / 2 && Math.abs(local.z) <= wall.depth / 2;
+    }) ? WALL_HEIGHT : 0;
+    const bombTop = this.deployments.bombs.reduce((height, bomb) =>
+      Math.hypot(placement.position.x - bomb.position.x, placement.position.z - bomb.position.z) < 0.6
+        ? Math.max(height, bomb.height + 0.68) : height, 0);
     return {
       ...placement, definitionId: definition.id,
-      landingHeight: id === 'bomb' ? bombLandingSurface(placement.position, this.deployments.walls, this.deployments.bombs).height : 0,
+      landingHeight: id === 'bomb' ? Math.max(wallTop, bombTop) : 0,
       valid: this.deployments.inventory[team][definition.id] >= definition.inventoryCost &&
         definition.isValid(placement, this.placementContext()),
     };
@@ -108,29 +122,10 @@ export class Game {
   update(dt: number, input: MoveInput): void {
     if (this.state.winner) return;
     const step = Math.min(dt, 1 / 30);
-    for (const team of ['red', 'blue'] as const) {
-      const player = this.state.players[team];
-      const raw = input[team];
-      const length = Math.hypot(raw.x, raw.z);
-      const target = { x: raw.x / Math.max(1, length) * this.speed, z: raw.z / Math.max(1, length) * this.speed };
-      const velocity = this.velocity[team];
-      const difference = { x: target.x - velocity.x, z: target.z - velocity.z };
-      const distance = Math.hypot(difference.x, difference.z);
-      const change = Math.min(distance, (length > 0 ? this.acceleration : this.braking) * step);
-      if (distance > 0) {
-        velocity.x += difference.x / distance * change;
-        velocity.z += difference.z / distance * change;
-      }
-      if (length > 0) player.facing = Math.atan2(raw.x, raw.z);
-      const previous = player.position;
-      player.position = movePlayerWithCollision(previous,
-        { x: velocity.x * step, z: velocity.z * step }, this.arena, this.playerRadius, this.deployments.walls);
-      if (step > 0) {
-        velocity.x = (player.position.x - previous.x) / step;
-        velocity.z = (player.position.z - previous.z) / step;
-      }
-    }
-    tickDeploymentState(this.deployments, step, this.arena);
+    this.physics.step(step, this.state, this.deployments, input, this.speed, this.acceleration, this.braking);
+    tickDeploymentState(this.deployments, step);
+    this.physics.removeMissingBombs(this.deployments.bombs);
+    this.physics.syncWalls(this.deployments.walls);
     tickEconomy(this.economy, this.deployments, this.state.players, step);
     for (const team of ['red', 'blue'] as const) {
       for (const id of Object.keys(this.deployments.aim[team]) as DeployableId[]) {

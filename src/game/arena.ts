@@ -128,65 +128,6 @@ export function circleTouchesWall(point: Vec2, radius: number, wall: WallDefinit
   const z = Math.max(-wall.depth / 2, Math.min(wall.depth / 2, p.z));
   return (p.x - x) ** 2 + (p.z - z) ** 2 < radius ** 2;
 }
-export function isOpenForPlayer(point: Vec2, arena: ArenaDefinition, radius: number, walls: readonly WallDefinition[] = arena.walls): boolean {
-  const b = arena.bounds;
-  return point.x >= b.minX + radius && point.x <= b.maxX - radius && point.z >= b.minZ + radius && point.z <= b.maxZ - radius &&
-    !walls.some(wall => circleTouchesWall(point, radius, wall));
-}
-
-function wallNormal(point: Vec2, wall: WallDefinition): Vec2 {
-  const local = localPoint(point, wall);
-  const halfWidth = wall.width / 2;
-  const halfDepth = wall.depth / 2;
-  const nearest = { x: Math.max(-halfWidth, Math.min(halfWidth, local.x)), z: Math.max(-halfDepth, Math.min(halfDepth, local.z)) };
-  let normal = { x: local.x - nearest.x, z: local.z - nearest.z };
-  const length = Math.hypot(normal.x, normal.z);
-  if (length > 1e-8) normal = { x: normal.x / length, z: normal.z / length };
-  else if (halfWidth - Math.abs(local.x) < halfDepth - Math.abs(local.z)) normal = { x: Math.sign(local.x) || 1, z: 0 };
-  else normal = { x: 0, z: Math.sign(local.z) || 1 };
-  const c = Math.cos(wall.rotation);
-  const s = Math.sin(wall.rotation);
-  return { x: c * normal.x + s * normal.z, z: -s * normal.x + c * normal.z };
-}
-
-function blockingNormal(point: Vec2, arena: ArenaDefinition, radius: number, walls: readonly WallDefinition[]): Vec2 | null {
-  const b = arena.bounds;
-  if (point.x < b.minX + radius) return { x: 1, z: 0 };
-  if (point.x > b.maxX - radius) return { x: -1, z: 0 };
-  if (point.z < b.minZ + radius) return { x: 0, z: 1 };
-  if (point.z > b.maxZ - radius) return { x: 0, z: -1 };
-  const wall = walls.find(w => circleTouchesWall(point, radius, w));
-  return wall ? wallNormal(point, wall) : null;
-}
-
-/** Advance to contact, then move the remaining step along the contacted surface. */
-export function movePlayerWithCollision(
-  position: Vec2, displacement: Vec2, arena: ArenaDefinition, radius: number,
-  walls: readonly WallDefinition[] = arena.walls,
-): Vec2 {
-  let current = { ...position };
-  let remaining = { ...displacement };
-  for (let contact = 0; contact < 3 && Math.hypot(remaining.x, remaining.z) > 1e-7; contact++) {
-    const target = { x: current.x + remaining.x, z: current.z + remaining.z };
-    if (isOpenForPlayer(target, arena, radius, walls)) return target;
-    let low = 0;
-    let high = 1;
-    for (let i = 0; i < 14; i++) {
-      const mid = (low + high) / 2;
-      const probe = { x: current.x + remaining.x * mid, z: current.z + remaining.z * mid };
-      if (isOpenForPlayer(probe, arena, radius, walls)) low = mid;
-      else high = mid;
-    }
-    current = { x: current.x + remaining.x * low, z: current.z + remaining.z * low };
-    const contactPoint = { x: current.x + remaining.x * (high - low + 0.0001), z: current.z + remaining.z * (high - low + 0.0001) };
-    const normal = blockingNormal(contactPoint, arena, radius, walls);
-    if (!normal) break;
-    const residual = { x: remaining.x * (1 - low), z: remaining.z * (1 - low) };
-    const inward = Math.min(0, residual.x * normal.x + residual.z * normal.z);
-    remaining = { x: residual.x - normal.x * inward, z: residual.z - normal.z * inward };
-  }
-  return current;
-}
 export function wallFitsArena(wall: WallDefinition, arena: ArenaDefinition): boolean {
   const c = Math.cos(wall.rotation);
   const s = Math.sin(wall.rotation);

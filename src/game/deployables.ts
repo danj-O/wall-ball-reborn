@@ -1,4 +1,4 @@
-import { circleTouchesWall, DEFAULT_PLAYER_WALL_TYPE, localPoint, movePlayerWithCollision, WALL_HEIGHT, WALL_TYPES, type ArenaDefinition, type Team, type Vec2, type WallDefinition } from './arena.ts';
+import { circleTouchesWall, DEFAULT_PLAYER_WALL_TYPE, WALL_HEIGHT, WALL_TYPES, type ArenaDefinition, type Team, type Vec2, type WallDefinition } from './arena.ts';
 import type { PlayerState } from './GameMode.ts';
 
 export type DeployableId = 'wall' | 'bomb';
@@ -13,8 +13,9 @@ export type RuntimeWall = WallDefinition & { kind: 'wall'; definitionId: Deploya
 export type RuntimeBomb = {
   kind: 'bomb'; definitionId: DeployableId; id: string; owner: Team;
   origin: Vec2; target: Vec2; position: Vec2; height: number;
-  phase: 'flying' | 'lit'; travelElapsed: number; travelDuration: number;
-  velocity: Vec2; verticalVelocity: number; support: { kind: 'wall' | 'bomb'; id: string } | null;
+  orientation: { x: number; y: number; z: number; w: number };
+  phase: 'flying' | 'lit'; travelDuration: number;
+  velocity: Vec2; verticalVelocity: number;
   fuseRemaining: number; fuseDuration: number;
 };
 export type RuntimeEntity = RuntimeWall | RuntimeBomb;
@@ -34,7 +35,7 @@ export type PlacementContext = {
   bombs: readonly RuntimeBomb[];
   players: Record<Team, PlayerState>;
 };
-export type TickContext = { state: DeploymentState; arena: ArenaDefinition; dt: number };
+export type TickContext = { state: DeploymentState; dt: number };
 
 export interface DeployableDefinition {
   readonly id: DeployableId;
@@ -45,7 +46,6 @@ export interface DeployableDefinition {
   readonly range: { min: number; max: number };
   readonly inventoryCost: number;
   readonly initialInventory: number;
-  readonly motion?: ProjectileMotion;
   isValid(placement: Placement, context: PlacementContext): boolean;
   deploy(id: string, team: Team, placement: Placement, origin: Vec2): RuntimeEntity;
   tick?(entity: RuntimeEntity, context: TickContext): boolean; // false removes entity
@@ -66,18 +66,9 @@ export const BOMB_THROW = {
   minimumTravelTime: 0.24,
   trajectoryHeight: 1.8,
 } as const;
-export type ProjectileMotion = {
-  response: 'roll' | 'bounce' | 'stick';
-  gravity: number; landingSpeed: number; groundDrag: number; airDrag: number;
-  restitution: number; settleSpeed: number;
-};
-// Motion data is independent of rendering; future projectiles can use other responses.
-export const BOMB_MOTION: ProjectileMotion = {
-  response: 'roll', gravity: 18, landingSpeed: 1.65, groundDrag: 5.5,
-  airDrag: 0.5, restitution: 0.22, settleSpeed: 0.16,
-};
+export const BOMB_RADIUS_PHYSICS = 0.34;
 const WALL_FOOTPRINT = { kind: 'box', ...WALL_TYPES[DEFAULT_PLAYER_WALL_TYPE].placementFootprint } as const;
-const BOMB_FOOTPRINT = { kind: 'circle', radius: 0.34 } as const;
+const BOMB_FOOTPRINT = { kind: 'circle', radius: BOMB_RADIUS_PHYSICS } as const;
 
 function boxInsideArena(wall: WallDefinition, arena: ArenaDefinition): boolean {
   const c = Math.cos(wall.rotation);
@@ -129,107 +120,9 @@ function bombPlacementValid(placement: Placement, context: PlacementContext): bo
   return true;
 }
 
-type LandingSurface = { height: number; support: RuntimeBomb['support'] };
-export function bombLandingSurface(position: Vec2, walls: readonly RuntimeWall[], bombs: readonly RuntimeBomb[], excludeId?: string): LandingSurface {
-  let surface: LandingSurface = { height: 0, support: null };
-  for (const wall of walls) {
-    const local = localPoint(position, wall);
-    if (Math.abs(local.x) <= wall.width / 2 && Math.abs(local.z) <= wall.depth / 2 && WALL_HEIGHT > surface.height) {
-      surface = { height: WALL_HEIGHT, support: { kind: 'wall', id: wall.id } };
-    }
-  }
-  for (const bomb of bombs) {
-    if (bomb.id === excludeId || bomb.phase !== 'lit') continue;
-    if (Math.hypot(position.x - bomb.position.x, position.z - bomb.position.z) > BOMB_FOOTPRINT.radius * 1.5) continue;
-    const height = bomb.height + BOMB_FOOTPRINT.radius * 2;
-    if (height > surface.height) surface = { height, support: { kind: 'bomb', id: bomb.id } };
-  }
-  return surface;
-}
-
-function supportedHeight(bomb: RuntimeBomb, state: DeploymentState): number | null {
-  if (!bomb.support) return 0;
-  if (bomb.support.kind === 'wall') {
-    const wall = state.walls.find(wall => wall.id === bomb.support?.id);
-    return wall && circleTouchesWall(bomb.position, BOMB_FOOTPRINT.radius, wall) ? WALL_HEIGHT : null;
-  }
-  const lower = state.bombs.find(other => other.id === bomb.support?.id && other.phase === 'lit');
-  return lower && Math.hypot(bomb.position.x - lower.position.x, bomb.position.z - lower.position.z) <= BOMB_FOOTPRINT.radius * 2
-    ? lower.height + BOMB_FOOTPRINT.radius * 2 : null;
-}
-
-function advanceBombMotion(bomb: RuntimeBomb, state: DeploymentState, arena: ArenaDefinition, dt: number): void {
-  const motion = DEPLOYABLES[bomb.definitionId].motion ?? BOMB_MOTION;
-  const supportHeight = supportedHeight(bomb, state);
-  if (supportHeight === null) bomb.support = null;
-  const grounded = supportHeight !== null && bomb.height <= supportHeight + 0.01 && bomb.verticalVelocity <= 0;
-  const damping = Math.exp(-(grounded ? motion.groundDrag : motion.airDrag) * dt);
-  bomb.velocity.x *= damping;
-  bomb.velocity.z *= damping;
-  if (grounded && Math.hypot(bomb.velocity.x, bomb.velocity.z) < motion.settleSpeed) bomb.velocity = { x: 0, z: 0 };
-
-  const previous = bomb.position;
-  const wanted = { x: previous.x + bomb.velocity.x * dt, z: previous.z + bomb.velocity.z * dt };
-  const bounds = arena.bounds;
-  const radius = BOMB_FOOTPRINT.radius;
-  const candidate = {
-    x: Math.max(bounds.minX + radius, Math.min(bounds.maxX - radius, wanted.x)),
-    z: Math.max(bounds.minZ + radius, Math.min(bounds.maxZ - radius, wanted.z)),
-  };
-  if (candidate.x !== wanted.x) bomb.velocity.x *= -motion.restitution;
-  if (candidate.z !== wanted.z) bomb.velocity.z *= -motion.restitution;
-  if (bomb.height < WALL_HEIGHT - 0.01 && bomb.support?.kind !== 'wall') {
-    bomb.position = movePlayerWithCollision(previous,
-      { x: candidate.x - previous.x, z: candidate.z - previous.z }, arena, radius, state.walls);
-    if (dt > 0) {
-      if (Math.abs(bomb.position.x - candidate.x) > 0.001) bomb.velocity.x = (bomb.position.x - previous.x) / dt;
-      if (Math.abs(bomb.position.z - candidate.z) > 0.001) bomb.velocity.z = (bomb.position.z - previous.z) / dt;
-    }
-  } else bomb.position = candidate;
-
-  const currentSupport = supportedHeight(bomb, state);
-  if (currentSupport === null) bomb.support = null;
-  const floor = currentSupport ?? 0;
-  if (bomb.height > floor + 0.001 || bomb.verticalVelocity > 0) {
-    bomb.verticalVelocity -= motion.gravity * dt;
-    bomb.height += bomb.verticalVelocity * dt;
-    if (bomb.height <= floor) {
-      bomb.height = floor;
-      bomb.verticalVelocity = Math.abs(bomb.verticalVelocity) * motion.restitution;
-      if (bomb.verticalVelocity < motion.settleSpeed || motion.response === 'stick') bomb.verticalVelocity = 0;
-      if (motion.response === 'stick') bomb.velocity = { x: 0, z: 0 };
-    }
-  } else {
-    bomb.height = floor;
-    bomb.verticalVelocity = 0;
-  }
-}
-
-function tickBomb(entity: RuntimeEntity, { state, arena, dt }: TickContext): boolean {
+function tickBomb(entity: RuntimeEntity, { state, dt }: TickContext): boolean {
   if (entity.kind !== 'bomb') return true;
-  if (entity.phase === 'flying') {
-    const remaining = entity.travelDuration - entity.travelElapsed;
-    const travelStep = Math.min(dt, remaining);
-    entity.travelElapsed += travelStep;
-    const progress = Math.min(1, entity.travelElapsed / entity.travelDuration);
-    entity.position = {
-      x: entity.origin.x + (entity.target.x - entity.origin.x) * progress,
-      z: entity.origin.z + (entity.target.z - entity.origin.z) * progress,
-    };
-    const landing = bombLandingSurface(entity.target, state.walls, state.bombs, entity.id);
-    entity.height = landing.height * progress + 4 * BOMB_THROW.trajectoryHeight * progress * (1 - progress);
-    if (progress < 1) return true;
-    entity.phase = 'lit';
-    entity.position = { ...entity.target };
-    entity.height = landing.height;
-    entity.support = landing.support;
-    const direction = { x: entity.target.x - entity.origin.x, z: entity.target.z - entity.origin.z };
-    const distance = Math.hypot(direction.x, direction.z);
-    entity.velocity = distance > 0 ? { x: direction.x / distance * BOMB_MOTION.landingSpeed, z: direction.z / distance * BOMB_MOTION.landingSpeed } : { x: 0, z: 0 };
-    dt -= travelStep;
-    if (dt <= 0) return true;
-  }
-  advanceBombMotion(entity, state, arena, dt);
+  if (entity.phase === 'flying') return true;
   entity.fuseRemaining -= dt;
   if (entity.fuseRemaining > 0) return true;
   state.explosions.push({
@@ -261,7 +154,6 @@ export const DEPLOYABLES: Record<DeployableId, DeployableDefinition> = {
   },
   bomb: {
     id: 'bomb', label: 'Bomb',
-    motion: BOMB_MOTION,
     control: { icon: 'bomb', size: 'primary' },
     preview: { kind: 'sphere', radius: BOMB_FOOTPRINT.radius },
     footprint: BOMB_FOOTPRINT,
@@ -271,8 +163,9 @@ export const DEPLOYABLES: Record<DeployableId, DeployableDefinition> = {
     deploy: (id, owner, placement, origin): RuntimeBomb => ({
       kind: 'bomb', definitionId: 'bomb', id, owner,
       origin: { ...origin }, target: { ...placement.position }, position: { ...origin }, height: 0,
-      phase: 'flying', travelElapsed: 0,
-      velocity: { x: 0, z: 0 }, verticalVelocity: 0, support: null,
+      orientation: { x: 0, y: 0, z: 0, w: 1 },
+      phase: 'flying',
+      velocity: { x: 0, z: 0 }, verticalVelocity: 0,
       travelDuration: Math.max(BOMB_THROW.minimumTravelTime,
         Math.hypot(placement.position.x - origin.x, placement.position.z - origin.z) / BOMB_THROW.travelSpeed),
       fuseRemaining: BOMB_FUSE, fuseDuration: BOMB_FUSE,
@@ -296,8 +189,8 @@ export function createDeploymentState(arena: ArenaDefinition): DeploymentState {
   };
 }
 
-export function tickDeploymentState(state: DeploymentState, dt: number, arena: ArenaDefinition): void {
+export function tickDeploymentState(state: DeploymentState, dt: number): void {
   for (const explosion of state.explosions) explosion.remaining -= dt;
   state.explosions = state.explosions.filter(explosion => explosion.remaining > 0);
-  state.bombs = state.bombs.filter(bomb => DEPLOYABLES[bomb.definitionId].tick?.(bomb, { state, arena, dt }) !== false);
+  state.bombs = state.bombs.filter(bomb => DEPLOYABLES[bomb.definitionId].tick?.(bomb, { state, dt }) !== false);
 }

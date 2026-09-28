@@ -43,7 +43,7 @@ test('configured walls and bounds block movement while facing follows input', ()
   assert.ok(game.state.players.red.position.x < -12.7);
   assert.equal(game.state.players.red.facing, Math.PI / 2);
   for (let i = 0; i < 300; i++) game.update(1 / 60, { ...idle, blue: { x: 1, z: 0 } });
-  assert.ok(game.state.players.blue.position.x <= arena.bounds.maxX - game.playerRadius);
+  assert.ok(game.state.players.blue.position.x <= arena.bounds.maxX - game.playerRadius + 0.01);
 });
 
 test('movement into a diagonal wall slides along its face without crossing it', () => {
@@ -58,7 +58,7 @@ test('movement into a diagonal wall slides along its face without crossing it', 
   const start = { ...game.state.players.red.position };
   for (let i = 0; i < 30; i++) {
     game.update(1 / 60, { ...idle, red: { x: 1, z: 0 } });
-    assert.equal(circleTouchesWall(game.state.players.red.position, game.playerRadius, wall), false);
+    assert.equal(circleTouchesWall(game.state.players.red.position, game.playerRadius - 0.02, wall), false);
   }
   assert.ok(game.state.players.red.position.x > start.x + 0.35);
   assert.ok(game.state.players.red.position.z < start.z - 0.35);
@@ -83,5 +83,6 @@ test('players accelerate to a faster run, brake smoothly, and reset motion', () 
   game.update(1 / 60, { ...idle, red: { x: 1, z: 0 } });
   game.reset();
   game.update(1 / 60, idle);
-  assert.deepEqual(game.state.players.red.position, arena.playerSpawns.red);
+  assert.ok(Math.hypot(game.state.players.red.position.x - arena.playerSpawns.red.x,
+    game.state.players.red.position.z - arena.playerSpawns.red.z) < 1e-6);
 });

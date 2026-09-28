@@ -9,6 +9,7 @@
     "test": "node --experimental-strip-types --test src/game/*.test.ts src/input/*.test.ts src/view/*.test.ts"
   },
   "dependencies": {
+    "cannon-es": "^0.20.0",
     "three": "^0.180.0"
   },
   "devDependencies": {

@@ -344,15 +344,15 @@ export class ArenaView {
     projectile.name = 'projectile';
     const dark = this.material(0x202b34, 0.2);
     const teamColor = this.material(bomb.owner === 'red' ? COLORS.red : COLORS.blue);
-    projectile.add(this.solid(new THREE.SphereGeometry(0.34, 16, 12), dark, 0, 0.38, 0));
-    const band = this.solid(new THREE.TorusGeometry(0.29, 0.045, 8, 24), teamColor, 0, 0.38, 0);
+    projectile.add(this.solid(new THREE.SphereGeometry(0.34, 16, 12), dark, 0, 0, 0));
+    const band = this.solid(new THREE.TorusGeometry(0.29, 0.045, 8, 24), teamColor, 0, 0, 0);
     band.rotation.x = Math.PI / 2;
     projectile.add(band);
-    projectile.add(this.solid(new THREE.CylinderGeometry(0.045, 0.045, 0.18, 8), this.material(0xe5e7d6), 0, 0.76, 0));
+    projectile.add(this.solid(new THREE.CylinderGeometry(0.045, 0.045, 0.18, 8), this.material(0xe5e7d6), 0, 0.38, 0));
     const spark = this.material(0xffb54b);
     spark.emissive.setHex(0xff8a17);
     spark.emissiveIntensity = 1.5;
-    const ember = this.solid(new THREE.SphereGeometry(0.09, 10, 8), spark, 0, 0.88, 0);
+    const ember = this.solid(new THREE.SphereGeometry(0.09, 10, 8), spark, 0, 0.5, 0);
     ember.name = 'ember';
     projectile.add(ember);
     group.add(projectile);
@@ -409,12 +409,11 @@ export class ArenaView {
       let group = this.bombGroups.get(bomb.id);
       if (!group) { group = this.makeBomb(bomb); this.bombGroups.set(bomb.id, group); }
       const projectile = group.getObjectByName('projectile');
-      group.position.set(bomb.phase === 'lit' ? bomb.position.x : bomb.target.x, 0,
-        bomb.phase === 'lit' ? bomb.position.z : bomb.target.z);
-      projectile?.position.set(bomb.phase === 'lit' ? 0 : bomb.position.x - bomb.target.x,
-        bomb.height, bomb.phase === 'lit' ? 0 : bomb.position.z - bomb.target.z);
+      group.position.set(bomb.position.x, 0, bomb.position.z);
+      projectile?.position.set(0, bomb.height + 0.34, 0);
+      projectile?.quaternion.set(bomb.orientation.x, bomb.orientation.y, bomb.orientation.z, bomb.orientation.w);
       const ring = group.getObjectByName('danger-ring');
-      if (ring) ring.position.y = bomb.phase === 'lit' ? bomb.height + 0.025 : 0.025;
+      if (ring) ring.position.y = 0.025;
       const lit = bomb.phase === 'lit';
       const ember = group.getObjectByName('ember');
       if (ember) {
