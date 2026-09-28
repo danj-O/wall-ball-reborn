@@ -1,7 +1,7 @@
 import type { Team, Vec2 } from '../game/arena.ts';
 import type { DeployableId } from '../game/deployables.ts';
 import {
-  defaultControlLayout, normalizeControlLayout,
+  defaultControlLayout, movementZoneRect, normalizeControlLayout,
   type ControlId, type ControlLayout,
 } from './controlLayout.ts';
 
@@ -56,7 +56,7 @@ type Callbacks = {
   onAimCancel(team: Team, id: DeployableId): void;
 };
 type Session = {
-  pointerId: number; pad: HTMLElement; knob: HTMLElement; team: Team;
+  pointerId: number; pad: HTMLElement; captureTarget: HTMLElement; knob: HTMLElement; team: Team;
   kind: 'move' | 'action'; itemId?: DeployableId; origin: { x: number; y: number };
 };
 type EditSession = { pointerId: number; pad: HTMLElement; id: ControlId; offset: { x: number; y: number } };
@@ -65,21 +65,23 @@ export class TouchControls {
   private readonly root: HTMLElement;
   private readonly callbacks: Callbacks;
   private readonly onLayoutChange: (layout: ControlLayout) => void;
+  private readonly onSelectionChange: (id: ControlId) => void;
   private readonly pointers = new PointerRegistry<Session>();
   private readonly occupiedPads = new Set<HTMLElement>();
   private layout: ControlLayout;
   private usingDefaultLayout: boolean;
   private customizing = false;
   private editSession: EditSession | null = null;
+  private selectedControl: ControlId = 'red-move';
 
   private dimensions(): { width: number; height: number } {
     const surface = this.root.parentElement ?? this.root;
     return { width: Math.max(1, surface.clientWidth), height: Math.max(1, surface.clientHeight) };
   }
 
-  private visiblePosition(point: { x: number; y: number }, width: number, height: number): { x: number; y: number } {
+  private visiblePosition(point: { x: number; y: number }, size: number, width: number, height: number): { x: number; y: number } {
     const style = getComputedStyle(this.root);
-    const half = this.layout.padSize / 2 + 4;
+    const half = size / 2 + 4;
     const minX = Math.min(0.5, ((parseFloat(style.paddingLeft) || 0) + half) / width);
     const maxX = Math.max(0.5, 1 - ((parseFloat(style.paddingRight) || 0) + half) / width);
     const minY = Math.min(0.5, ((parseFloat(style.paddingTop) || 0) + half) / height);
@@ -87,21 +89,25 @@ export class TouchControls {
     return { x: Math.max(minX, Math.min(maxX, point.x)), y: Math.max(minY, Math.min(maxY, point.y)) };
   }
 
-  constructor(root: HTMLElement, callbacks: Callbacks, layout?: ControlLayout, onLayoutChange: (layout: ControlLayout) => void = () => {}) {
+  constructor(root: HTMLElement, callbacks: Callbacks, layout?: ControlLayout,
+    onLayoutChange: (layout: ControlLayout) => void = () => {}, onSelectionChange: (id: ControlId) => void = () => {}) {
     this.root = root;
     this.callbacks = callbacks;
     this.onLayoutChange = onLayoutChange;
+    this.onSelectionChange = onSelectionChange;
     root.replaceChildren();
     const { width, height } = this.dimensions();
     this.usingDefaultLayout = !layout;
     this.layout = layout ?? defaultControlLayout(width, height);
+    this.makeMoveZone('red');
+    this.makeMoveZone('blue');
     this.makePad('red', 'move', undefined, 'Move', 'move');
     this.makePad('blue', 'move', undefined, 'Move', 'move');
     this.applyLayout();
   }
 
   getLayout(): ControlLayout { return structuredClone(this.layout); }
-  get maxDrag(): number { return this.layout.floatRadius; }
+  getSelectedControl(): ControlId { return this.selectedControl; }
 
   setLayout(layout: ControlLayout): void {
     this.cancelAll();
@@ -128,6 +134,7 @@ export class TouchControls {
     this.cancelAll();
     this.customizing = enabled;
     this.root.classList.toggle('customizing', enabled);
+    if (enabled) this.selectControl(this.selectedControl);
     if (!enabled && this.editSession) this.finishEdit(this.editSession.pointerId);
   }
 
@@ -158,6 +165,27 @@ export class TouchControls {
     return `${team}-${kind === 'move' ? 'move' : itemId}` as ControlId;
   }
 
+  private selectControl(id: ControlId): void {
+    this.selectedControl = id;
+    for (const pad of this.root.querySelectorAll<HTMLElement>('.touch-pad')) {
+      pad.classList.toggle('selected-control', pad.dataset.controlId === id);
+    }
+    for (const zone of this.root.querySelectorAll<HTMLElement>('.move-zone')) {
+      zone.classList.toggle('selected-control', zone.dataset.controlId === id);
+    }
+    this.onSelectionChange(id);
+  }
+
+  private makeMoveZone(team: Team): void {
+    const zone = document.createElement('div');
+    zone.className = 'move-zone';
+    zone.dataset.controlId = `${team}-move`;
+    zone.dataset.team = team;
+    zone.setAttribute('aria-label', `${team} movement touch area`);
+    this.root.appendChild(zone);
+    this.bindPointerTarget(zone, () => this.root.querySelector<HTMLElement>(`.move-pad[data-team="${team}"]`));
+  }
+
   private makePad(team: Team, kind: 'move' | 'action', itemId: DeployableId | undefined, label: string, icon: string): HTMLElement {
     const pad = document.createElement('div');
     pad.className = `touch-pad ${kind === 'action' ? 'action-pad' : 'move-pad'}`;
@@ -186,20 +214,31 @@ export class TouchControls {
       pad.appendChild(count);
     }
     this.root.appendChild(pad);
-    this.bindPad(pad);
+    this.bindPointerTarget(pad, () => pad);
     return pad;
   }
 
   private applyLayout(): void {
     const { width, height } = this.dimensions();
-    this.root.style.setProperty('--control-size', `${this.layout.padSize}px`);
-    this.root.style.setProperty('--float-diameter', `${this.layout.floatRadius * 2}px`);
     for (const pad of this.root.querySelectorAll<HTMLElement>('.touch-pad')) {
       const id = pad.dataset.controlId as ControlId;
-      const position = this.layout.positions[id] && this.visiblePosition(this.layout.positions[id], width, height);
+      const size = this.layout.sizes[id];
+      const position = this.layout.positions[id] && this.visiblePosition(this.layout.positions[id], size, width, height);
       if (!position) continue;
+      pad.style.setProperty('--control-size', `${size}px`);
+      pad.style.setProperty('--float-diameter', `${this.layout.floatRadii[id] * 2}px`);
+      if (pad.classList.contains('active') && pad.dataset.kind === 'move') continue;
       pad.style.left = `${position.x * 100}%`;
       pad.style.top = `${position.y * 100}%`;
+    }
+    for (const zone of this.root.querySelectorAll<HTMLElement>('.move-zone')) {
+      const id = zone.dataset.controlId as ControlId;
+      const center = this.visiblePosition(this.layout.positions[id], this.layout.sizes[id], width, height);
+      const rect = movementZoneRect(center, this.layout.sizes[id], this.layout.floatRadii[id], width, height);
+      zone.style.left = `${rect.left}px`;
+      zone.style.top = `${rect.top}px`;
+      zone.style.width = `${rect.side}px`;
+      zone.style.height = `${rect.side}px`;
     }
   }
 
@@ -209,7 +248,8 @@ export class TouchControls {
     event.stopPropagation();
     const rect = this.root.getBoundingClientRect();
     const id = pad.dataset.controlId as ControlId;
-    const center = this.visiblePosition(this.layout.positions[id], rect.width, rect.height);
+    this.selectControl(id);
+    const center = this.visiblePosition(this.layout.positions[id], this.layout.sizes[id], rect.width, rect.height);
     this.editSession = {
       pointerId: event.pointerId, pad, id,
       offset: { x: center.x * rect.width - (event.clientX - rect.left), y: center.y * rect.height - (event.clientY - rect.top) },
@@ -227,7 +267,7 @@ export class TouchControls {
       x: (event.clientX - rect.left + session.offset.x) / rect.width,
       y: (event.clientY - rect.top + session.offset.y) / rect.height,
     };
-    this.layout.positions[session.id] = this.visiblePosition(point, rect.width, rect.height);
+    this.layout.positions[session.id] = this.visiblePosition(point, this.layout.sizes[session.id], rect.width, rect.height);
     this.usingDefaultLayout = false;
     this.applyLayout();
   }
@@ -241,51 +281,61 @@ export class TouchControls {
     this.onLayoutChange(this.getLayout());
   }
 
-  private bindPad(pad: HTMLElement): void {
-    pad.addEventListener('pointerdown', event => {
-      if (this.customizing) { this.beginEdit(pad, event); return; }
+  private bindPointerTarget(target: HTMLElement, resolvePad: () => HTMLElement | null): void {
+    target.addEventListener('pointerdown', event => {
+      const pad = resolvePad();
+      if (!pad) return;
+      if (this.customizing) { if (target === pad) this.beginEdit(pad, event); return; }
       if (this.occupiedPads.has(pad) || pad.classList.contains('unavailable')) return;
       event.stopPropagation();
       const team = pad.dataset.team as Team;
       const kind = pad.dataset.kind as 'move' | 'action';
       const itemId = pad.dataset.item as DeployableId | undefined;
       const session: Session = {
-        pointerId: event.pointerId, pad, knob: pad.querySelector<HTMLElement>('.touch-knob')!,
+        pointerId: event.pointerId, pad, captureTarget: target, knob: pad.querySelector<HTMLElement>('.touch-knob')!,
         team, kind, itemId, origin: { x: event.clientX, y: event.clientY },
       };
       if (!this.pointers.claim(event.pointerId, session)) return;
       event.preventDefault();
       this.occupiedPads.add(pad);
-      try { pad.setPointerCapture(event.pointerId); }
+      try { target.setPointerCapture(event.pointerId); }
       catch { this.end(event.pointerId, true); return; }
       pad.classList.add('active');
-      const rect = pad.getBoundingClientRect();
-      const local = orientPadVector(team, event.clientX - rect.left - rect.width / 2,
-        event.clientY - rect.top - rect.height / 2);
-      session.knob.style.left = `${rect.width / 2 + local.x}px`;
-      session.knob.style.top = `${rect.height / 2 + local.y}px`;
+      if (kind === 'move') {
+        const bounds = this.root.getBoundingClientRect();
+        pad.style.left = `${event.clientX - bounds.left}px`;
+        pad.style.top = `${event.clientY - bounds.top}px`;
+        session.knob.style.left = '50%';
+        session.knob.style.top = '50%';
+      } else {
+        const rect = pad.getBoundingClientRect();
+        const local = orientPadVector(team, event.clientX - rect.left - rect.width / 2,
+          event.clientY - rect.top - rect.height / 2);
+        session.knob.style.left = `${rect.width / 2 + local.x}px`;
+        session.knob.style.top = `${rect.height / 2 + local.y}px`;
+      }
       session.knob.style.transform = '';
       if (kind === 'action') this.callbacks.onAimStart(team, itemId!);
       this.update(session, event);
     });
-    pad.addEventListener('pointermove', event => {
+    target.addEventListener('pointermove', event => {
       if (this.editSession?.pointerId === event.pointerId) { this.moveEdit(event); return; }
       const session = this.pointers.get(event.pointerId);
-      if (session?.pad === pad) { event.preventDefault(); this.update(session, event); }
+      if (session?.captureTarget === target) { event.preventDefault(); this.update(session, event); }
     });
-    pad.addEventListener('pointerup', event => {
+    target.addEventListener('pointerup', event => {
       if (this.editSession?.pointerId === event.pointerId) { this.moveEdit(event); this.finishEdit(event.pointerId); return; }
       const session = this.pointers.get(event.pointerId);
-      if (session?.pad !== pad) return;
+      if (session?.captureTarget !== target) return;
       event.preventDefault();
       this.update(session, event);
       this.end(event.pointerId, false);
     });
-    pad.addEventListener('pointercancel', event => {
+    target.addEventListener('pointercancel', event => {
       if (this.editSession?.pointerId === event.pointerId) this.finishEdit(event.pointerId);
       else this.end(event.pointerId, true);
     });
-    pad.addEventListener('lostpointercapture', event => {
+    target.addEventListener('lostpointercapture', event => {
       if (this.editSession?.pointerId === event.pointerId) this.finishEdit(event.pointerId);
       else this.end(event.pointerId, true);
     });
@@ -295,12 +345,13 @@ export class TouchControls {
     const dx = event.clientX - session.origin.x;
     const dy = event.clientY - session.origin.y;
     const length = Math.hypot(dx, dy);
-    const clamped = Math.min(this.maxDrag, length);
+    const radius = this.layout.floatRadii[this.controlId(session.team, session.kind, session.itemId)];
+    const clamped = Math.min(radius, length);
     const visual = orientPadVector(session.team, dx, dy);
     session.knob.style.transform = `translate(${visual.x / (length || 1) * clamped}px, ${visual.y / (length || 1) * clamped}px)`;
     const input = orientScreenVector(session.team, dx, dy);
     const direction = this.callbacks.toWorld(input.x, input.y);
-    const strength = Math.min(1, length / this.maxDrag);
+    const strength = Math.min(1, length / radius);
     if (session.kind === 'move') this.callbacks.onMove(session.team, { x: direction.x * strength, z: direction.z * strength });
     else this.callbacks.onAim(session.team, session.itemId!, direction, strength);
   }
@@ -309,11 +360,12 @@ export class TouchControls {
     const session = this.pointers.release(pointerId);
     if (!session) return;
     this.occupiedPads.delete(session.pad);
-    if (session.pad.hasPointerCapture(pointerId)) session.pad.releasePointerCapture(pointerId);
+    if (session.captureTarget.hasPointerCapture(pointerId)) session.captureTarget.releasePointerCapture(pointerId);
     session.pad.classList.remove('active');
     session.knob.style.left = '50%';
     session.knob.style.top = '50%';
     session.knob.style.transform = '';
+    if (session.kind === 'move') this.applyLayout();
     if (session.kind === 'move') this.callbacks.onMove(session.team, { x: 0, z: 0 });
     else if (cancelled) this.callbacks.onAimCancel(session.team, session.itemId!);
     else this.callbacks.onAimRelease(session.team, session.itemId!);

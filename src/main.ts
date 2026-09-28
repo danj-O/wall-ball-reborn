@@ -5,7 +5,7 @@ import { Game, type MoveInput } from './game/Game.ts';
 import type { Team, Vec2 } from './game/arena.ts';
 import { AIM_DEAD_ZONE, DEPLOYABLES, type DeployableId } from './game/deployables.ts';
 import { TouchControls, type ActionSlot } from './input/TouchControls.ts';
-import { normalizeControlLayout, type ControlLayout } from './input/controlLayout.ts';
+import { normalizeControlLayout, type ControlId, type ControlLayout } from './input/controlLayout.ts';
 import { ArenaView } from './view/ArenaView.ts';
 
 const STORAGE_KEY = 'wall-ball-reborn-arena-v1';
@@ -34,6 +34,7 @@ const mode = new CaptureTheFlag();
 let game = new Game(arena, mode);
 let editing = false;
 let editingControls = false;
+let selectedControl: ControlId = 'red-move';
 let selectedId: string | null = null;
 type PlacementTool = 'wood' | 'stone' | 'wall-depot' | 'bomb-depot';
 let placementTool: PlacementTool | null = null;
@@ -89,10 +90,11 @@ app.innerHTML = `
       <p class="hint">Choose an object, then tap the arena to place it. Tap an existing object to select it; drag to move. Reset Arena restores the flags and one center wall.</p>
     </div>
     <div id="controls-panel" class="editor-dock controls-dock" hidden>
-      <div class="editor-heading"><strong>CONTROLS</strong><span>Drag each Move, Wall, or Bomb pad where it feels comfortable.</span></div>
-      <label class="control-setting">Pad size <output id="pad-size-value">82px</output><input id="pad-size" type="range" min="64" max="120" step="2" value="82"></label>
-      <label class="control-setting">Floating area <output id="float-radius-value">56px</output><input id="float-radius" type="range" min="28" max="110" step="2" value="56"></label>
-      <p class="hint">Floating area sets how far you drag from touch-down for full movement or throw strength. The dashed rings show it while editing.</p>
+      <div class="editor-heading"><strong>CONTROLS</strong><span>Tap a pad to edit it, then drag it to move it.</span></div>
+      <div class="section-kicker">SELECTED: <span id="selected-control">RED MOVE</span></div>
+      <label class="control-setting">Pad size <output id="pad-size-value">110px</output><input id="pad-size" type="range" min="56" max="220" step="2" value="110"></label>
+      <label class="control-setting">Floating area <output id="float-radius-value">70px</output><input id="float-radius" type="range" min="28" max="160" step="2" value="70"></label>
+      <p class="hint">Each pad keeps its own size and drag distance. Move starts wherever you touch inside its dashed square; the joystick appears under your finger. Drag the pad to reposition that square.</p>
       <div class="editor-actions"><button id="reset-controls" type="button">Reset Layout</button><button id="done-controls" type="button">Done</button></div>
     </div>
   </main>
@@ -211,10 +213,11 @@ editButton.addEventListener('click', () => {
 });
 function syncControlSettings(): void {
   const layout = touchController.getLayout();
-  document.querySelector<HTMLInputElement>('#pad-size')!.value = String(layout.padSize);
-  document.querySelector<HTMLInputElement>('#float-radius')!.value = String(layout.floatRadius);
-  document.querySelector<HTMLOutputElement>('#pad-size-value')!.textContent = `${layout.padSize}px`;
-  document.querySelector<HTMLOutputElement>('#float-radius-value')!.textContent = `${layout.floatRadius}px`;
+  document.querySelector<HTMLElement>('#selected-control')!.textContent = selectedControl.replace('-', ' ').toUpperCase();
+  document.querySelector<HTMLInputElement>('#pad-size')!.value = String(layout.sizes[selectedControl]);
+  document.querySelector<HTMLInputElement>('#float-radius')!.value = String(layout.floatRadii[selectedControl]);
+  document.querySelector<HTMLOutputElement>('#pad-size-value')!.textContent = `${layout.sizes[selectedControl]}px`;
+  document.querySelector<HTMLOutputElement>('#float-radius-value')!.textContent = `${layout.floatRadii[selectedControl]}px`;
 }
 function persistControlLayout(layout: ControlLayout): void {
   localStorage.setItem(CONTROL_STORAGE_KEY, JSON.stringify(layout));
@@ -243,11 +246,11 @@ controlsButton.addEventListener('click', () => {
 });
 document.querySelector<HTMLButtonElement>('#done-controls')!.addEventListener('click', finishControlsCustomization);
 document.querySelector<HTMLButtonElement>('#reset-controls')!.addEventListener('click', () => touchController.resetLayout());
-for (const [selector, key] of [['#pad-size', 'padSize'], ['#float-radius', 'floatRadius']] as const) {
+for (const [selector, key] of [['#pad-size', 'sizes'], ['#float-radius', 'floatRadii']] as const) {
   document.querySelector<HTMLInputElement>(selector)!.addEventListener('input', event => {
     const value = Number((event.currentTarget as HTMLInputElement).value);
     const layout = touchController.getLayout();
-    layout[key] = value;
+    layout[key][selectedControl] = value;
     touchController.setLayout(layout);
     persistControlLayout(touchController.getLayout());
   });
@@ -352,7 +355,7 @@ touchController = new TouchControls(touchControls, {
   onAim: (team, id, direction, strength) => { if (!editing && !editingControls) game.updateDeployAim(team, id, direction, strength); },
   onAimRelease: (team, id) => { if (!editing && !editingControls) reportDeployment(team, id, game.releaseDeployAim(team, id)); },
   onAimCancel: (team, id) => game.cancelDeployAim(team, id),
-}, loadControlLayout(), persistControlLayout);
+}, loadControlLayout(), persistControlLayout, id => { selectedControl = id; syncControlSettings(); });
 const actionSlots: ActionSlot[] = Object.values(DEPLOYABLES).map(definition => ({
   id: definition.id, label: definition.label, icon: definition.control.icon, size: definition.control.size,
 }));
