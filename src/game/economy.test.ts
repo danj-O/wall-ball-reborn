@@ -124,7 +124,7 @@ test('wood takes two bomb hits and stone takes four at configured health', () =>
       const bomb = DEPLOYABLES.bomb.deploy(`hit-${id}-${hit}`, 'red',
         { position: { x, z: 0 }, rotation: 0 }, { x, z: -2 }) as RuntimeBomb;
       state.bombs.push(bomb);
-      tickDeploymentState(state, bomb.travelDuration + BOMB_FUSE);
+      tickDeploymentState(state, bomb.travelDuration + BOMB_FUSE, arena);
       assert.equal(state.walls.find(w => w.id === id)?.hp,
         hit === hits ? undefined : WALL_TYPES[id].maxHealth - BOMB_DAMAGE * hit);
     }

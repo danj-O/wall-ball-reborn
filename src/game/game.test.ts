@@ -63,3 +63,25 @@ test('movement into a diagonal wall slides along its face without crossing it', 
   assert.ok(game.state.players.red.position.x > start.x + 0.35);
   assert.ok(game.state.players.red.position.z < start.z - 0.35);
 });
+
+test('players accelerate to a faster run, brake smoothly, and reset motion', () => {
+  const arena = cloneArena(DEFAULT_ARENA);
+  arena.walls = [];
+  const game = new Game(arena, new CaptureTheFlag());
+  const start = game.state.players.red.position.x;
+  game.update(1 / 60, { ...idle, red: { x: 1, z: 0 } });
+  const firstStep = game.state.players.red.position.x - start;
+  assert.ok(firstStep > 0 && firstStep < game.speed / 60);
+  for (let i = 0; i < 20; i++) game.update(1 / 60, { ...idle, red: { x: 1, z: 0 } });
+  const running = game.state.players.red.position.x;
+  game.update(1 / 60, idle);
+  assert.ok(game.state.players.red.position.x > running);
+  for (let i = 0; i < 20; i++) game.update(1 / 60, idle);
+  const stopped = game.state.players.red.position.x;
+  game.update(1 / 60, idle);
+  assert.equal(game.state.players.red.position.x, stopped);
+  game.update(1 / 60, { ...idle, red: { x: 1, z: 0 } });
+  game.reset();
+  game.update(1 / 60, idle);
+  assert.deepEqual(game.state.players.red.position, arena.playerSpawns.red);
+});

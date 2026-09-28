@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { WALL_TYPES, type ArenaDefinition, type DepotDefinition, type Team, type Vec2 } from '../game/arena.ts';
+import { WALL_HEIGHT, WALL_TYPES, type ArenaDefinition, type DepotDefinition, type Team, type Vec2 } from '../game/arena.ts';
 import type { GameState } from '../game/GameMode.ts';
 import { BOMB_RADIUS, BOMB_THROW, DEPLOYABLES, type DeployableId, type DeploymentState, type RuntimeBomb, type RuntimeWall, type Explosion } from '../game/deployables.ts';
 import type { EconomyState, RuntimeDepot } from '../game/economy.ts';
@@ -261,7 +261,7 @@ export class ArenaView {
         sides.color.multiplyScalar(0.65 + health * 0.35);
         top.color.multiplyScalar(0.65 + health * 0.35);
       }
-      const mesh = this.solid(new THREE.BoxGeometry(wall.width, 1.35, wall.depth), sides, wall.position.x, 0.675, wall.position.z);
+      const mesh = this.solid(new THREE.BoxGeometry(wall.width, WALL_HEIGHT, wall.depth), sides, wall.position.x, WALL_HEIGHT / 2, wall.position.z);
       mesh.material = [sides, sides, top, sides, sides, sides];
       mesh.rotation.y = wall.rotation;
       mesh.userData.wallId = wall.id;
@@ -409,14 +409,18 @@ export class ArenaView {
       let group = this.bombGroups.get(bomb.id);
       if (!group) { group = this.makeBomb(bomb); this.bombGroups.set(bomb.id, group); }
       const projectile = group.getObjectByName('projectile');
-      projectile?.position.set(bomb.position.x - bomb.target.x, bomb.height, bomb.position.z - bomb.target.z);
+      group.position.set(bomb.phase === 'lit' ? bomb.position.x : bomb.target.x, 0,
+        bomb.phase === 'lit' ? bomb.position.z : bomb.target.z);
+      projectile?.position.set(bomb.phase === 'lit' ? 0 : bomb.position.x - bomb.target.x,
+        bomb.height, bomb.phase === 'lit' ? 0 : bomb.position.z - bomb.target.z);
+      const ring = group.getObjectByName('danger-ring');
+      if (ring) ring.position.y = bomb.phase === 'lit' ? bomb.height + 0.025 : 0.025;
       const lit = bomb.phase === 'lit';
       const ember = group.getObjectByName('ember');
       if (ember) {
         ember.visible = lit;
         if (lit) ember.scale.setScalar(0.8 + 0.4 * Math.sin((1 - bomb.fuseRemaining / bomb.fuseDuration) * 28));
       }
-      const ring = group.getObjectByName('danger-ring');
       if (ring) ring.visible = lit;
     }
     const explosionIds = new Set(deployments.explosions.map(explosion => explosion.id));
@@ -474,7 +478,7 @@ export class ArenaView {
         this.previewGroups.set(key, current);
         }
         current.group.visible = true;
-        current.group.position.set(preview.position.x, 0, preview.position.z);
+        current.group.position.set(preview.position.x, preview.landingHeight, preview.position.z);
         current.group.rotation.y = id === 'wall' ? preview.rotation : 0;
         current.material.color.setHex(preview.valid ? 0x6beca4 : 0xff6659);
         current.material.emissive.setHex(preview.valid ? 0x164a2d : 0x6a1717);
@@ -484,7 +488,7 @@ export class ArenaView {
             const t = index / 16;
             return new THREE.Vector3(
               (origin.x - preview.position.x) * (1 - t),
-              0.45 + 4 * BOMB_THROW.trajectoryHeight * t * (1 - t),
+              0.45 - preview.landingHeight * (1 - t) + 4 * BOMB_THROW.trajectoryHeight * t * (1 - t),
               (origin.z - preview.position.z) * (1 - t),
             );
           });

@@ -14,6 +14,7 @@ export const WALL_TYPES = {
   stone: { label: 'Stone', maxHealth: 200, appearance: { side: 0x788b95, top: 0xb3c1c4 }, placementFootprint: { width: 2.4, depth: 0.8 } },
 } as const;
 export const DEFAULT_PLAYER_WALL_TYPE: WallType = 'wood';
+export const WALL_HEIGHT = 1.35;
 export const DEFAULT_DEPOT_CAPACITY = 8;
 export const MAX_DEPOT_CAPACITY = 32;
 
