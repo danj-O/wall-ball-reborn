@@ -12,6 +12,7 @@ export class ArenaView {
   readonly renderer: THREE.WebGLRenderer;
   readonly camera: THREE.PerspectiveCamera;
   private readonly scene = new THREE.Scene();
+  private readonly sun = new THREE.DirectionalLight(0xfff2de, 3.1);
   private readonly arenaGroup = new THREE.Group();
   private readonly wallsGroup = new THREE.Group();
   private readonly depotsGroup = new THREE.Group();
@@ -54,7 +55,7 @@ export class ArenaView {
     );
     this.scene.background = new THREE.Color(0x101923);
     this.scene.add(new THREE.HemisphereLight(0xddeeff, 0x5d6b72, 1.9));
-    const sun = new THREE.DirectionalLight(0xfff2de, 3.1);
+    const sun = this.sun;
     sun.position.set(-8, 19, 11);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -194,6 +195,14 @@ export class ArenaView {
     const b = arena.bounds;
     const width = b.maxX - b.minX;
     const depth = b.maxZ - b.minZ;
+    const shadowExtent = Math.max(width, depth) / 2 + 9;
+    const shadowCamera = this.sun.shadow.camera as THREE.OrthographicCamera;
+    shadowCamera.left = -shadowExtent;
+    shadowCamera.right = shadowExtent;
+    shadowCamera.top = shadowExtent;
+    shadowCamera.bottom = -shadowExtent;
+    shadowCamera.far = Math.max(55, shadowExtent * 2 + 20);
+    shadowCamera.updateProjectionMatrix();
     const centerX = (b.minX + b.maxX) / 2;
     const centerZ = (b.minZ + b.maxZ) / 2;
 

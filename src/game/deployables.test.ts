@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cloneArena, DEFAULT_ARENA, WALL_HEIGHT, WALL_TYPES } from './arena.ts';
+import { cloneArena, BASE_ARENA as DEFAULT_ARENA, WALL_HEIGHT, WALL_TYPES } from './arena.ts';
 import { CaptureTheFlag } from './CaptureTheFlag.ts';
 import { Game } from './Game.ts';
 import {

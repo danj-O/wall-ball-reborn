@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cloneArena, DEFAULT_ARENA, migrateArena, WALL_TYPES } from './arena.ts';
+import { cloneArena, BASE_ARENA as DEFAULT_ARENA, migrateArena, WALL_TYPES } from './arena.ts';
 import { CaptureTheFlag } from './CaptureTheFlag.ts';
 import { BOMB_DAMAGE, BOMB_FUSE, createDeploymentState, DEPLOYABLES, tickDeploymentState, type RuntimeBomb } from './deployables.ts';
 import { createEconomyState, ECONOMY_CONFIG, tickEconomy, transferOnTerritoryTag } from './economy.ts';

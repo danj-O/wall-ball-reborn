@@ -1,5 +1,5 @@
 import './style.css';
-import { cloneArena, DEFAULT_ARENA, DEFAULT_DEPOT_CAPACITY, depotFitsArena, flagFitsArena, MAX_DEPOT_CAPACITY, migrateArena, nextArenaObjectId, powerUpRegionFitsArena, WALL_TYPES, wallFitsArena, type ArenaDefinition, type DepotDefinition, type DepotType, type RectRegion, type WallDefinition, type WallType } from './game/arena.ts';
+import { ARENA_DIMENSIONS, cloneArena, DEFAULT_ARENA, DEFAULT_DEPOT_CAPACITY, depotFitsArena, flagFitsArena, MAX_DEPOT_CAPACITY, migrateArena, minimumArenaDimensions, nextArenaObjectId, powerUpRegionFitsArena, resizedArena, WALL_TYPES, wallFitsArena, type ArenaDefinition, type DepotDefinition, type DepotType, type RectRegion, type WallDefinition, type WallType } from './game/arena.ts';
 import { CaptureTheFlag } from './game/CaptureTheFlag.ts';
 import { Game, type MoveInput } from './game/Game.ts';
 import type { Team, Vec2 } from './game/arena.ts';
@@ -14,6 +14,7 @@ const STORAGE_KEY = 'wall-ball-reborn-arena-v1';
 const CONTROL_STORAGE_KEY = 'wall-ball-reborn-controls-v1';
 const GAME_SETTINGS_STORAGE_KEY = 'wall-ball-reborn-game-settings-v1';
 const GAME_DEFAULT_SAVED_KEY = 'wall-ball-reborn-game-default-saved';
+const ARENA_DEFAULT_SAVED_KEY = 'wall-ball-reborn-arena-default-saved';
 
 function loadArena(): ArenaDefinition {
   try {
@@ -71,7 +72,7 @@ app.innerHTML = `
       <div class="menu-heading"><span class="brand-mark">WB</span><div><strong>WALL BALL</strong><small id="mode-label">MATCH / CAPTURE THE FLAG</small></div></div>
       <div class="menu-actions"><button id="new-match-button" type="button">Start / New Match</button><button id="touch-toggle" type="button">Touch Controls</button><button id="edit-button" type="button">Customize Arena</button><button id="controls-button" type="button">Customize Controls</button><button id="game-settings-button" type="button" aria-expanded="false">Game Tuning</button><button id="reset-button" type="button">Return to Start</button><button id="fullscreen-button" type="button" aria-pressed="false">Enter Fullscreen</button></div>
       <div id="game-settings-panel" class="game-settings-panel" hidden>
-        <div class="section-kicker">GAME TUNING</div><p class="hint">Speed is units/sec; acceleration and braking are units/sec². Player and projectile weight affect physical collisions. Blast radius is in arena units. Changes apply to movement and future throws immediately. These settings stay on this device.</p>
+        <div class="section-kicker">GAME TUNING</div><p class="hint">Speed is units/sec; acceleration and braking are units/sec². Player and projectile weight affect collisions. Blast radius is in arena units. Starting supplies apply next match; generation rates and movement apply now. A regeneration value of 0 turns it off.</p>
         <div id="game-settings-sliders"></div>
         <div class="editor-actions"><button id="reset-game-settings" type="button">Reset Tuning</button><button id="done-game-settings" type="button">Done</button></div>
         <div id="developer-game-defaults" class="developer-controls" hidden><button id="save-game-default" class="editor-wide-button" type="button">Save as Game Default</button><p class="hint">Developer mode: writes the preset used by new devices.</p><p id="game-default-status" class="control-default-status" role="status" aria-live="polite"></p></div>
@@ -100,8 +101,10 @@ app.innerHTML = `
       <div id="depot-options" class="editor-options" hidden><div class="section-kicker">DEPOT</div><div class="editor-actions"><button id="shrink-depot" type="button">Size −</button><button id="grow-depot" type="button">Size +</button><button id="delete-depot" type="button">Delete Depot</button></div><label id="depot-capacity-setting" class="editor-setting">Capacity <input id="depot-capacity" type="number" min="1" max="32" step="1" value="8" inputmode="numeric"></label></div>
       <div id="flag-options" class="editor-options" hidden><div class="section-kicker">FLAG + BASE</div><button id="reset-flag" class="editor-wide-button" type="button">Return to Default</button></div>
       <div id="power-region-options" class="editor-options" hidden><div class="section-kicker">POWER-UP REGION</div><div class="editor-actions"><button id="region-width-down" type="button">Width −</button><button id="region-width-up" type="button">Width +</button><button id="region-depth-down" type="button">Depth −</button><button id="region-depth-up" type="button">Depth +</button><button id="delete-power-region" type="button">Delete Region</button></div></div>
+      <div class="editor-options"><div class="section-kicker">ARENA SIZE</div><label class="control-setting"><span>Width</span><output id="arena-width-value" for="arena-width"></output><input id="arena-width" type="range" min="${ARENA_DIMENSIONS.width.min}" max="${ARENA_DIMENSIONS.width.max}" step="2"></label><label class="control-setting"><span>Length</span><output id="arena-length-value" for="arena-length"></output><input id="arena-length" type="range" min="${ARENA_DIMENSIONS.length.min}" max="${ARENA_DIMENSIONS.length.max}" step="2"></label><p id="arena-size-hint" class="hint">Drag a slider to resize the arena. Existing objects stay in place.</p></div>
       <div class="editor-actions"><button id="reset-arena" type="button">Reset Arena</button><button id="play-arena" type="button">Play Arena</button></div>
-      <p class="hint">Choose an object, then tap the arena to place it. Tap an existing object to select it; drag to move. Power-up regions are visible only here. Reset Arena restores the default segmented wall rows, depots, and objectives.</p>
+      <div id="developer-arena-defaults" class="developer-controls" hidden><button id="save-arena-default" class="editor-wide-button" type="button">Save as Default Map</button><p class="hint">Developer mode: use this layout and size for new devices and Reset Arena.</p><p id="arena-default-status" class="control-default-status" role="status" aria-live="polite"></p></div>
+      <p class="hint">Choose an object, then tap the arena to place it. Tap an existing object to select it; drag to move. Power-up regions are visible only here. Reset Arena restores the current saved default map.</p>
     </div>
     <div id="controls-panel" class="editor-dock controls-dock" hidden>
       <div class="editor-heading"><strong>CONTROLS</strong><span>Tap a pad to edit it, then drag it to move it.</span></div>
@@ -245,6 +248,7 @@ function updateResultsUi(): void {
 
 function saveAndRefresh(): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(arena));
+  if (editing) syncArenaSizeInputs();
   view.rebuildArena(arena, selectedId);
   updateUi();
 }
@@ -295,6 +299,7 @@ editButton.addEventListener('click', () => {
   placementTool = null;
   editorMessage = '';
   if (!editing) resetMatch();
+  else syncArenaSizeInputs();
   view.rebuildArena(arena);
   updateUi();
 });
@@ -350,14 +355,22 @@ document.querySelector<HTMLButtonElement>('#reset-controls')!.addEventListener('
 
 type MovementTuningField = 'runSpeed' | 'acceleration' | 'braking' | 'playerMass';
 type ProjectileTuningField = keyof ProjectileTuning;
+type ResourceTuningField = 'startingInventory' | 'passiveRegenSeconds' | 'depotGenerationSeconds';
 type TuningRow =
   | { label: string; field: MovementTuningField; kind?: undefined; groupStart?: boolean }
-  | { label: string; field: ProjectileTuningField; kind: keyof GameSettings['projectiles']; groupStart?: boolean };
+  | { label: string; field: ProjectileTuningField; kind: keyof GameSettings['projectiles']; groupStart?: boolean }
+  | { label: string; field: ResourceTuningField; resource: 'wall' | 'bomb'; kind?: undefined; groupStart?: boolean };
 const tuningRows: TuningRow[] = [
   { label: 'Player run speed', field: 'runSpeed' },
   { label: 'Start acceleration', field: 'acceleration' },
   { label: 'Stopping brake', field: 'braking' },
   { label: 'Player weight', field: 'playerMass' },
+  { label: 'Starting walls', field: 'startingInventory', resource: 'wall', groupStart: true },
+  { label: 'Starting bombs', field: 'startingInventory', resource: 'bomb' },
+  { label: 'Wall auto-regeneration (sec)', field: 'passiveRegenSeconds', resource: 'wall' },
+  { label: 'Bomb auto-regeneration (sec)', field: 'passiveRegenSeconds', resource: 'bomb' },
+  { label: 'Wall depot generation (sec)', field: 'depotGenerationSeconds', resource: 'wall' },
+  { label: 'Bomb depot generation (sec)', field: 'depotGenerationSeconds', resource: 'bomb' },
   ...Object.keys(DEFAULT_GAME_SETTINGS.projectiles).flatMap(id => {
     const kind = id as keyof GameSettings['projectiles'];
     const name = id === 'mega-bomb' ? 'Mega Bomb' : id.charAt(0).toUpperCase() + id.slice(1).replaceAll('-', ' ');
@@ -373,6 +386,7 @@ const settingsPanel = document.querySelector<HTMLElement>('#game-settings-panel'
 const settingsButton = document.querySelector<HTMLButtonElement>('#game-settings-button')!;
 const sliders = document.querySelector<HTMLElement>('#game-settings-sliders')!;
 function tuningValue(row: typeof tuningRows[number]): number {
+  if ('resource' in row) return gameSettings[row.field][row.resource];
   return row.kind ? gameSettings.projectiles[row.kind][row.field] : gameSettings[row.field];
 }
 function refreshTuningSliders(): void {
@@ -390,7 +404,8 @@ for (const [index, row] of tuningRows.entries()) {
   sliders.append(label);
   label.querySelector('input')!.addEventListener('input', event => {
     const value = Number((event.currentTarget as HTMLInputElement).value);
-    if (row.kind) gameSettings.projectiles[row.kind][row.field] = value;
+    if ('resource' in row) gameSettings[row.field][row.resource] = value;
+    else if (row.kind) gameSettings.projectiles[row.kind][row.field] = value;
     else gameSettings[row.field] = value;
     game.setSettings(gameSettings);
     localStorage.setItem(GAME_SETTINGS_STORAGE_KEY, JSON.stringify(gameSettings));
@@ -414,10 +429,11 @@ document.querySelector<HTMLButtonElement>('#reset-game-settings')!.addEventListe
   refreshTuningSliders();
 });
 
-function confirmCodeDefault(file: string): Promise<boolean> {
+function confirmCodeDefault(file: string, title: string): Promise<boolean> {
   const overlay = document.querySelector<HTMLElement>('#developer-confirm')!;
+  document.querySelector<HTMLElement>('#developer-confirm-title')!.textContent = title;
   document.querySelector<HTMLElement>('#developer-confirm-message')!.textContent =
-    `Are you sure? This alters the game code by writing ${file}. Everyone using a fresh install will get these settings.`;
+    `Are you sure? This alters the game code by writing ${file}. New devices and Reset will use this preset.`;
   overlay.hidden = false;
   const cancel = document.querySelector<HTMLButtonElement>('#developer-cancel')!;
   const accept = document.querySelector<HTMLButtonElement>('#developer-accept')!;
@@ -441,8 +457,9 @@ function confirmCodeDefault(file: string): Promise<boolean> {
 if (import.meta.env.DEV) {
   document.querySelector<HTMLElement>('#developer-control-defaults')!.hidden = false;
   document.querySelector<HTMLElement>('#developer-game-defaults')!.hidden = false;
+  document.querySelector<HTMLElement>('#developer-arena-defaults')!.hidden = false;
   document.querySelector<HTMLButtonElement>('#save-code-default')!.addEventListener('click', async () => {
-    if (!await confirmCodeDefault('src/input/mobileControlDefaults.json')) return;
+    if (!await confirmCodeDefault('src/input/mobileControlDefaults.json', 'Save control default?')) return;
     const button = document.querySelector<HTMLButtonElement>('#save-code-default')!;
     const status = document.querySelector<HTMLElement>('#control-default-status')!;
     button.disabled = true;
@@ -460,7 +477,7 @@ if (import.meta.env.DEV) {
     } finally { button.disabled = false; }
   });
   document.querySelector<HTMLButtonElement>('#save-game-default')!.addEventListener('click', async () => {
-    if (!await confirmCodeDefault('src/game/gameSettingsDefaults.json')) return;
+    if (!await confirmCodeDefault('src/game/gameSettingsDefaults.json', 'Save game default?')) return;
     const button = document.querySelector<HTMLButtonElement>('#save-game-default')!;
     const status = document.querySelector<HTMLElement>('#game-default-status')!;
     button.disabled = true;
@@ -478,6 +495,25 @@ if (import.meta.env.DEV) {
       status.textContent = error instanceof Error ? error.message : 'Could not save defaults';
     }
     finally { button.disabled = false; }
+  });
+  document.querySelector<HTMLButtonElement>('#save-arena-default')!.addEventListener('click', async () => {
+    if (!await confirmCodeDefault('src/game/arenaDefaults.json', 'Save default map?')) return;
+    const button = document.querySelector<HTMLButtonElement>('#save-arena-default')!;
+    const status = document.querySelector<HTMLElement>('#arena-default-status')!;
+    button.disabled = true;
+    status.textContent = 'Saving…';
+    sessionStorage.setItem(ARENA_DEFAULT_SAVED_KEY, '1');
+    try {
+      const response = await fetch('/__dev/arena-defaults', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(arena),
+      });
+      if (response.status === 404) throw new Error('Save route unavailable. Restart npm run dev, then reload this page.');
+      if (!response.ok) throw new Error(`Save failed (${response.status})`);
+      status.textContent = 'Saved as the default map. New devices and Reset Arena use it after reload.';
+    } catch (error) {
+      sessionStorage.removeItem(ARENA_DEFAULT_SAVED_KEY);
+      status.textContent = error instanceof Error ? error.message : 'Could not save map';
+    } finally { button.disabled = false; }
   });
 }
 for (const [selector, key] of [['#pad-size', 'sizes'], ['#float-radius', 'floatRadii']] as const) {
@@ -695,8 +731,34 @@ document.querySelector('#reset-arena')!.addEventListener('click', () => {
   placementTool = null;
   editorMessage = '';
   saveAndRefresh();
+  syncArenaSizeInputs();
   view.resizeToContainer(viewport, arena);
 });
+function syncArenaSizeInputs(): void {
+  const limits = minimumArenaDimensions(arena);
+  for (const axis of ['width', 'length'] as const) {
+    const input = document.querySelector<HTMLInputElement>(`#arena-${axis}`)!;
+    const size = axis === 'width' ? arena.bounds.maxX - arena.bounds.minX : arena.bounds.maxZ - arena.bounds.minZ;
+    input.min = String(limits[axis]);
+    input.value = String(size);
+    document.querySelector<HTMLOutputElement>(`#arena-${axis}-value`)!.value = `${size} units`;
+  }
+  document.querySelector<HTMLElement>('#arena-size-hint')!.textContent =
+    `Minimum with current objects: ${limits.width} wide × ${limits.length} long. Move objects inward to shrink further.`;
+}
+for (const axis of ['width', 'length'] as const) {
+  document.querySelector<HTMLInputElement>(`#arena-${axis}`)!.addEventListener('input', event => {
+    const size = Number((event.currentTarget as HTMLInputElement).value);
+    const width = axis === 'width' ? size : arena.bounds.maxX - arena.bounds.minX;
+    const length = axis === 'length' ? size : arena.bounds.maxZ - arena.bounds.minZ;
+    const next = resizedArena(arena, width, length);
+    if (!next) { syncArenaSizeInputs(); return; }
+    Object.assign(arena, next);
+    editorMessage = '';
+    saveAndRefresh();
+    view.resizeToContainer(viewport, arena);
+  });
+}
 document.querySelector('#reset-flag')!.addEventListener('click', () => {
   const team = selectedFlag();
   if (!team) return;
@@ -1004,6 +1066,14 @@ if (sessionStorage.getItem(GAME_DEFAULT_SAVED_KEY) === '1') {
   settingsButton.setAttribute('aria-expanded', 'true');
   document.querySelector<HTMLElement>('#game-default-status')!.textContent =
     'Saved as the game default. New devices and Reset Tuning use this preset.';
+  updateUi();
+}
+if (sessionStorage.getItem(ARENA_DEFAULT_SAVED_KEY) === '1') {
+  sessionStorage.removeItem(ARENA_DEFAULT_SAVED_KEY);
+  editing = true;
+  syncArenaSizeInputs();
+  document.querySelector<HTMLElement>('#arena-default-status')!.textContent =
+    'Saved as the default map. New devices and Reset Arena use this layout and size.';
   updateUi();
 }
 requestAnimationFrame(frame);

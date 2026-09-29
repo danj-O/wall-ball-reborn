@@ -39,8 +39,8 @@ export class Game {
     this.rng = rng;
     this.settings = structuredClone(settings);
     this.state = mode.createState(arena);
-    this.deployments = createDeploymentState(arena);
-    this.economy = createEconomyState(arena);
+    this.deployments = createDeploymentState(arena, this.settings.startingInventory);
+    this.economy = createEconomyState(arena, this.settings);
     this.physics = new PhysicsWorld(arena, this.state, this.deployments, this.playerRadius, this.settings.playerMass);
     this.powerUps = createPowerUpState(rng);
   }
@@ -48,8 +48,8 @@ export class Game {
   reset(): void {
     this.match = createMatchState();
     this.state = this.mode.createState(this.arena);
-    this.deployments = createDeploymentState(this.arena);
-    this.economy = createEconomyState(this.arena);
+    this.deployments = createDeploymentState(this.arena, this.settings.startingInventory);
+    this.economy = createEconomyState(this.arena, this.settings);
     this.lastTheft = null;
     this.theftSequence = 0;
     this.nextEntityId = 0;
@@ -64,10 +64,24 @@ export class Game {
   }
 
   setSettings(settings: GameSettings): void {
+    const previous = this.settings;
     this.settings = structuredClone(settings);
     this.physics.setPlayerMass(this.settings.playerMass);
     this.physics.capPlayerSpeed('red', this.speed * (this.powerUps.players.red.speedRemaining > 0 ? POWER_UP_CONFIG.speedMultiplier : 1));
     this.physics.capPlayerSpeed('blue', this.speed * (this.powerUps.players.blue.speedRemaining > 0 ? POWER_UP_CONFIG.speedMultiplier : 1));
+    for (const team of ['red', 'blue'] as const) {
+      for (const resource of ['wall', 'bomb'] as const) {
+        const remaining = resource === 'wall' ? this.economy.passiveWallRemaining : this.economy.passiveBombRemaining;
+        const before = previous.passiveRegenSeconds[resource];
+        const after = this.settings.passiveRegenSeconds[resource];
+        if (before !== after) remaining[team] = after === 0 ? 0 : before === 0 ? after : Math.max(0.01, remaining[team] / before * after);
+      }
+    }
+    for (const depot of this.economy.depots) {
+      const before = previous.depotGenerationSeconds[depot.type];
+      const after = this.settings.depotGenerationSeconds[depot.type];
+      if (before !== after) depot.generationRemaining = Math.max(0.01, depot.generationRemaining / before * after);
+    }
   }
 
   beginDeployAim(team: Team, id: DeployableId): void {
@@ -181,7 +195,7 @@ export class Game {
       const collection = this.powerUps.lastCollection;
       this.state.event = `${collection.team.toUpperCase()} picked up ${POWER_UPS[collection.definitionId].presentation.label}!`;
     }
-    tickEconomy(this.economy, this.deployments, this.state.players, step);
+    tickEconomy(this.economy, this.deployments, this.state.players, step, this.settings);
     for (const team of ['red', 'blue'] as const) {
       for (const id of Object.keys(this.deployments.aim[team]) as DeployableId[]) {
         const aim = this.deployments.aim[team][id];

@@ -1,3 +1,5 @@
+import savedArenaDefault from './arenaDefaults.json' with { type: 'json' };
+
 export type Team = 'red' | 'blue';
 export type Vec2 = { x: number; z: number };
 export type ArenaBounds = { minX: number; maxX: number; minZ: number; maxZ: number };
@@ -9,6 +11,7 @@ export type WallDefinition = { id: string; type: WallType; position: Vec2; width
 export type DepotDefinition = { id: string; type: DepotType; position: Vec2; radius: number; capacity: number };
 
 export const ARENA_SIZE = { halfWidth: 25, halfDepth: 13, contestedHalfWidth: 3.5 } as const;
+export const ARENA_DIMENSIONS = { width: { min: 30, max: 80 }, length: { min: 18, max: 48 } } as const;
 export const WALL_TYPES = {
   wood: { label: 'Wood', maxHealth: 100, appearance: { side: 0x92694c, top: 0xc49b6d }, placementFootprint: { width: 2.25, depth: 0.5 } },
   stone: { label: 'Stone', maxHealth: 200, appearance: { side: 0x788b95, top: 0xb3c1c4 }, placementFootprint: { width: 2.4, depth: 0.8 } },
@@ -54,7 +57,7 @@ const defaultEntryWalls: WallDefinition[] = [
   ...entryWallRow('blue', 'wood', 3.85, 11, 0.07),
   ...entryWallRow('blue', 'stone', 5, 10, 0.16),
 ];
-export const DEFAULT_ARENA: ArenaDefinition = {
+export const BASE_ARENA: ArenaDefinition = {
   bounds: defaultBounds,
   playerSpawns: { red: { x: -21.5, z: 0 }, blue: { x: 21.5, z: 0 } },
   flagPositions: { red: { x: -23.2, z: 0 }, blue: { x: 23.2, z: 0 } },
@@ -71,6 +74,9 @@ export const DEFAULT_ARENA: ArenaDefinition = {
     { id: 'bomb-depot', type: 'bomb', position: { x: 0, z: 6.7 }, radius: 1.7, capacity: DEFAULT_DEPOT_CAPACITY },
   ],
 };
+
+// A saved developer preset becomes the new reset/new-device arena.
+export const DEFAULT_ARENA: ArenaDefinition = validateArenaDefinition(savedArenaDefault) ?? BASE_ARENA;
 
 export function cloneArena(arena: ArenaDefinition): ArenaDefinition { return structuredClone(arena); }
 export function nextArenaObjectId(arena: ArenaDefinition, kind: 'wall' | 'depot' | 'power-region'): string {
@@ -119,13 +125,14 @@ export function migrateArena(saved: ArenaDefinition): ArenaDefinition {
   const legacy = arena.bounds.minX === -12 && arena.bounds.maxX === 12 && arena.bounds.minZ === -8 && arena.bounds.maxZ === 8;
   if (legacy) {
     arena.bounds = { ...defaultBounds };
-    if (arena.playerSpawns.red.x === -9 && arena.playerSpawns.blue.x === 9) arena.playerSpawns = structuredClone(DEFAULT_ARENA.playerSpawns);
-    if (arena.flagPositions.red.x === -10.5 && arena.flagPositions.blue.x === 10.5) arena.flagPositions = structuredClone(DEFAULT_ARENA.flagPositions);
+    arena.territories = defaultTerritories(arena.bounds);
+    if (arena.playerSpawns.red.x === -9 && arena.playerSpawns.blue.x === 9) arena.playerSpawns = structuredClone(BASE_ARENA.playerSpawns);
+    if (arena.flagPositions.red.x === -10.5 && arena.flagPositions.blue.x === 10.5) arena.flagPositions = structuredClone(BASE_ARENA.flagPositions);
   }
   arena.walls = arena.walls.map(wall => ({ ...wall, type: wall.type === 'wood' ? 'wood' : 'stone' }));
   arena.territories ??= defaultTerritories(arena.bounds);
-  arena.powerupSpawnAreas ??= structuredClone(DEFAULT_ARENA.powerupSpawnAreas);
-  arena.depots ??= structuredClone(DEFAULT_ARENA.depots).filter(depot => depotFitsArena(depot, arena));
+  arena.powerupSpawnAreas ??= structuredClone(BASE_ARENA.powerupSpawnAreas);
+  arena.depots ??= structuredClone(BASE_ARENA.depots).filter(depot => depotFitsArena(depot, arena));
   arena.depots = arena.depots.map(depot => ({ ...depot, capacity: depot.capacity ?? DEFAULT_DEPOT_CAPACITY }));
   return arena;
 }
@@ -153,4 +160,106 @@ export function wallFitsArena(wall: WallDefinition, arena: ArenaDefinition): boo
       wall.position.z - halfZ < b.minZ + 0.2 || wall.position.z + halfZ > b.maxZ - 0.2) return false;
   return !Object.values(arena.playerSpawns).some(point => circleTouchesWall(point, 0.85, wall)) &&
     !Object.values(arena.flagPositions).some(point => circleTouchesWall(point, 1.3, wall));
+}
+
+function object(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function finite(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
+function validPoint(value: unknown): value is Vec2 {
+  return object(value) && finite(value.x) && finite(value.z);
+}
+function validBounds(value: unknown): value is ArenaBounds {
+  return object(value) && finite(value.minX) && finite(value.maxX) && finite(value.minZ) && finite(value.maxZ) &&
+    value.minX < value.maxX && value.minZ < value.maxZ;
+}
+
+export function validateArenaDefinition(value: unknown, report?: (reason: string) => void): ArenaDefinition | null {
+  const invalid = (reason: string): null => { report?.(reason); return null; };
+  if (!object(value) || !validBounds(value.bounds) || !object(value.playerSpawns) ||
+    !object(value.flagPositions) || !object(value.territories) ||
+    !Array.isArray(value.walls) || !Array.isArray(value.depots) || !Array.isArray(value.powerupSpawnAreas)) return invalid('Arena data is incomplete.');
+  const arena = value as unknown as ArenaDefinition;
+  const width = arena.bounds.maxX - arena.bounds.minX;
+  const length = arena.bounds.maxZ - arena.bounds.minZ;
+  if (width < ARENA_DIMENSIONS.width.min || width > ARENA_DIMENSIONS.width.max ||
+    length < ARENA_DIMENSIONS.length.min || length > ARENA_DIMENSIONS.length.max) return invalid('Width or length is outside the allowed range.');
+  for (const team of ['red', 'blue', 'contested'] as const) {
+    const regions = arena.territories[team];
+    if (!Array.isArray(regions) || regions.length !== 1 || !object(regions[0]) ||
+      typeof regions[0].id !== 'string' || !validBounds(regions[0].bounds)) return invalid(`${team} territory is invalid.`);
+  }
+  const red = arena.territories.red[0].bounds;
+  const middle = arena.territories.contested[0].bounds;
+  const blue = arena.territories.blue[0].bounds;
+  if (red.minX !== arena.bounds.minX || red.maxX !== middle.minX || middle.maxX !== blue.minX ||
+    blue.maxX !== arena.bounds.maxX ||
+    [red, middle, blue].some(bounds => bounds.minZ !== arena.bounds.minZ || bounds.maxZ !== arena.bounds.maxZ)) return invalid('Territories do not cover the resized arena.');
+  for (const team of ['red', 'blue'] as const) {
+    const spawn = arena.playerSpawns[team];
+    const flag = arena.flagPositions[team];
+    if (!validPoint(spawn) || !validPoint(flag) ||
+      spawn.x < arena.bounds.minX + 0.85 || spawn.x > arena.bounds.maxX - 0.85 ||
+      spawn.z < arena.bounds.minZ + 0.85 || spawn.z > arena.bounds.maxZ - 0.85) return invalid(`${team} spawn needs more room at the edge.`);
+  }
+  const ids = new Set<string>();
+  for (const wall of arena.walls) {
+    if (!object(wall) || typeof wall.id !== 'string' || !wall.id || ids.has(wall.id) ||
+      !['wood', 'stone'].includes(wall.type) || !validPoint(wall.position) ||
+      !finite(wall.width) || !finite(wall.depth) || !finite(wall.rotation) ||
+      wall.width <= 0 || wall.depth <= 0 || !wallFitsArena(wall, arena)) return invalid(`Wall ${wall.id} no longer fits.`);
+    ids.add(wall.id);
+  }
+  for (const team of ['red', 'blue'] as const) {
+    if (!flagFitsArena(team, arena.flagPositions[team], arena) ||
+      arena.walls.some(wall => circleTouchesWall(arena.playerSpawns[team], 0.85, wall))) return invalid(`${team} flag or spawn no longer fits.`);
+  }
+  for (const depot of arena.depots) {
+    if (!object(depot) || typeof depot.id !== 'string' || !depot.id || ids.has(depot.id) ||
+      !['wall', 'bomb'].includes(depot.type) || !validPoint(depot.position) ||
+      !finite(depot.radius) || !finite(depot.capacity) || !depotFitsArena(depot, arena)) return invalid(`Depot ${depot.id} no longer fits.`);
+    ids.add(depot.id);
+  }
+  for (const region of arena.powerupSpawnAreas) {
+    if (!object(region) || typeof region.id !== 'string' || !region.id || ids.has(region.id) ||
+      !validBounds(region.bounds) || !powerUpRegionFitsArena(region, arena)) return invalid(`Power-up region ${region.id} no longer fits.`);
+    ids.add(region.id);
+  }
+  return cloneArena(arena);
+}
+
+export function resizedArena(arena: ArenaDefinition, width: number, length: number,
+  report?: (reason: string) => void): ArenaDefinition | null {
+  if (!Number.isInteger(width) || !Number.isInteger(length)) { report?.('Use whole numbers for width and length.'); return null; }
+  const resized = cloneArena(arena);
+  const centerX = (arena.bounds.minX + arena.bounds.maxX) / 2;
+  const centerZ = (arena.bounds.minZ + arena.bounds.maxZ) / 2;
+  resized.bounds = {
+    minX: centerX - width / 2, maxX: centerX + width / 2,
+    minZ: centerZ - length / 2, maxZ: centerZ + length / 2,
+  };
+  // Keep the edited center lane and power-up area in world space. Resizing
+  // changes the outer edges, not the layout players have built in the middle.
+  const redEdge = arena.territories.red[0].bounds.maxX;
+  const blueEdge = arena.territories.blue[0].bounds.minX;
+  resized.territories = {
+    red: [{ ...arena.territories.red[0], bounds: { ...resized.bounds, maxX: redEdge } }],
+    contested: [{ ...arena.territories.contested[0], bounds: { ...resized.bounds, minX: redEdge, maxX: blueEdge } }],
+    blue: [{ ...arena.territories.blue[0], bounds: { ...resized.bounds, minX: blueEdge } }],
+  };
+  return validateArenaDefinition(resized, report);
+}
+
+/** Smallest even dimensions that retain every existing arena object in place. */
+export function minimumArenaDimensions(arena: ArenaDefinition): { width: number; length: number } {
+  const width = arena.bounds.maxX - arena.bounds.minX;
+  const length = arena.bounds.maxZ - arena.bounds.minZ;
+  const smallest = (axis: 'width' | 'length'): number => {
+    const range = ARENA_DIMENSIONS[axis];
+    for (let size = range.min; size <= range.max; size += 2) {
+      if (resizedArena(arena, axis === 'width' ? size : width, axis === 'length' ? size : length)) return size;
+    }
+    return range.max;
+  };
+  return { width: smallest('width'), length: smallest('length') };
 }

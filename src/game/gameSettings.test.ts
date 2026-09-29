@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cloneArena, DEFAULT_ARENA } from './arena.ts';
+import { cloneArena, BASE_ARENA as DEFAULT_ARENA } from './arena.ts';
 import { CaptureTheFlag } from './CaptureTheFlag.ts';
 import { Game } from './Game.ts';
 import { bombLaunch } from './trajectory.ts';
 import { BASE_GAME_SETTINGS, migrateGameSettings, validateGameSettings } from './gameSettingsSchema.ts';
 import { DEFAULT_GAME_SETTINGS, loadGameSettings } from './gameSettings.ts';
+import { createDeploymentState } from './deployables.ts';
+import { createEconomyState, tickEconomy } from './economy.ts';
 
 test('tuning preset accepts only complete finite values in safe ranges', () => {
   assert.deepEqual(validateGameSettings(BASE_GAME_SETTINGS), BASE_GAME_SETTINGS);
@@ -17,6 +19,8 @@ test('tuning preset accepts only complete finite values in safe ranges', () => {
   assert.equal(validateGameSettings({ ...BASE_GAME_SETTINGS, projectiles: {
     ...BASE_GAME_SETTINGS.projectiles, bomb: { ...BASE_GAME_SETTINGS.projectiles.bomb, blastRadius: Infinity },
   } }), null);
+  assert.equal(validateGameSettings({ ...BASE_GAME_SETTINGS, startingInventory: { wall: 2.5, bomb: 2 } }), null);
+  assert.equal(validateGameSettings({ ...BASE_GAME_SETTINGS, passiveRegenSeconds: { wall: -1, bomb: 10 } }), null);
 });
 
 test('older on-device tuning migrates without losing the saved speed or projectile settings', () => {
@@ -27,9 +31,38 @@ test('older on-device tuning migrates without losing the saved speed or projecti
   const migrated = migrateGameSettings(previous, DEFAULT_GAME_SETTINGS)!;
   assert.equal(migrated.runSpeed, 8.8);
   assert.equal(migrated.projectiles.bomb.throwForce, 1.2);
-  assert.equal(migrated.projectiles.bomb.blastRadius, 2.5);
-  assert.equal(migrated.acceleration, 28);
+  assert.equal(migrated.projectiles.bomb.blastRadius, DEFAULT_GAME_SETTINGS.projectiles.bomb.blastRadius);
+  assert.equal(migrated.acceleration, DEFAULT_GAME_SETTINGS.acceleration);
+  assert.deepEqual(migrated.startingInventory, DEFAULT_GAME_SETTINGS.startingInventory);
   assert.equal(loadGameSettings({ getItem: () => JSON.stringify(previous) }).projectiles.bomb.throwForce, 1.2);
+});
+
+test('starting supplies and passive/depot generation rates use saved tuning', () => {
+  const settings = structuredClone(BASE_GAME_SETTINGS);
+  settings.startingInventory = { wall: 3, bomb: 1 };
+  settings.passiveRegenSeconds = { wall: 2, bomb: 3 };
+  settings.depotGenerationSeconds = { wall: 4, bomb: 8 };
+  const arena = cloneArena(DEFAULT_ARENA);
+  const deployments = createDeploymentState(arena, settings.startingInventory);
+  const economy = createEconomyState(arena, settings);
+  assert.deepEqual(deployments.inventory.red, { wall: 3, bomb: 1 });
+  assert.deepEqual(deployments.inventory.blue, { wall: 3, bomb: 1 });
+  assert.equal(economy.depots.find(depot => depot.type === 'wall')!.generationRemaining, 4);
+  assert.equal(economy.depots.find(depot => depot.type === 'bomb')!.generationRemaining, 20);
+  const game = new Game(arena, new CaptureTheFlag(), Math.random, settings);
+  assert.deepEqual(game.deployments.inventory.red, { wall: 3, bomb: 1 });
+  game.deployments.inventory.red.wall = 99;
+  game.reset();
+  assert.deepEqual(game.deployments.inventory.red, { wall: 3, bomb: 1 });
+  const players = new CaptureTheFlag().createState(arena).players;
+  tickEconomy(economy, deployments, players, 2.1, settings);
+  assert.equal(deployments.inventory.red.wall, 4);
+  assert.equal(deployments.inventory.red.bomb, 1);
+  tickEconomy(economy, deployments, players, 1, settings);
+  assert.equal(deployments.inventory.red.bomb, 2);
+  settings.passiveRegenSeconds.wall = 0;
+  tickEconomy(economy, deployments, players, 5, settings);
+  assert.equal(deployments.inventory.red.wall, 4);
 });
 
 test('projectile force, lob, and weight change the shared rigid-body launch independently', () => {

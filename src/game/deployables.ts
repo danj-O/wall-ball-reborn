@@ -1,6 +1,7 @@
 import { circleTouchesWall, DEFAULT_PLAYER_WALL_TYPE, WALL_HEIGHT, WALL_TYPES, type ArenaDefinition, type Team, type Vec2, type WallDefinition } from './arena.ts';
 import type { PlayerState } from './GameMode.ts';
 import type { BombTrajectory } from './trajectory.ts';
+import type { GameSettings } from './gameSettingsSchema.ts';
 
 export type ResourceId = 'wall' | 'bomb';
 export type DeployableId = ResourceId | BombType;
@@ -187,7 +188,7 @@ function bombDefinition(id: BombType, label: string, size: 'primary' | 'secondar
   };
 }
 
-export function createDeploymentState(arena: ArenaDefinition): DeploymentState {
+export function createDeploymentState(arena: ArenaDefinition, startingInventory: GameSettings['startingInventory'] = { wall: DEPLOYABLES.wall.initialInventory, bomb: DEPLOYABLES.bomb.initialInventory }): DeploymentState {
   return {
     walls: arena.walls.map(wall => ({
       ...structuredClone(wall), kind: 'wall', definitionId: 'wall', owner: null,
@@ -195,8 +196,8 @@ export function createDeploymentState(arena: ArenaDefinition): DeploymentState {
     })),
     bombs: [], explosions: [],
     inventory: {
-      red: { wall: DEPLOYABLES.wall.initialInventory, bomb: DEPLOYABLES.bomb.initialInventory },
-      blue: { wall: DEPLOYABLES.wall.initialInventory, bomb: DEPLOYABLES.bomb.initialInventory },
+      red: { ...startingInventory },
+      blue: { ...startingInventory },
     },
     aim: { red: {}, blue: {} },
   };

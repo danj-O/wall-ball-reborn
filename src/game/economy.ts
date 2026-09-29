@@ -1,6 +1,7 @@
 import { territoryAt, type ArenaDefinition, type DepotDefinition, type Team, type Vec2 } from './arena.ts';
 import type { DeploymentState } from './deployables.ts';
 import type { PlayerState } from './GameMode.ts';
+import type { GameSettings } from './gameSettingsSchema.ts';
 
 export const ECONOMY_CONFIG = {
   passiveBombInterval: 10,
@@ -15,17 +16,23 @@ export type RuntimeDepot = DepotDefinition & {
 };
 export type EconomyState = {
   passiveBombRemaining: Record<Team, number>;
+  passiveWallRemaining: Record<Team, number>;
   depots: RuntimeDepot[];
   territory: Record<Team, 'red' | 'blue' | 'contested'>;
   theftUsedThisVisit: Record<Team, boolean>;
 };
 
-export function createEconomyState(arena: ArenaDefinition): EconomyState {
+export function createEconomyState(arena: ArenaDefinition, settings?: GameSettings): EconomyState {
+  const bombInterval = settings?.passiveRegenSeconds.bomb ?? ECONOMY_CONFIG.passiveBombInterval;
+  const wallInterval = settings?.passiveRegenSeconds.wall ?? 0;
   return {
-    passiveBombRemaining: { red: ECONOMY_CONFIG.passiveBombInterval, blue: ECONOMY_CONFIG.passiveBombInterval },
+    passiveBombRemaining: { red: bombInterval, blue: bombInterval },
+    passiveWallRemaining: { red: wallInterval, blue: wallInterval },
     depots: arena.depots.map(depot => ({
       ...structuredClone(depot), stock: ECONOMY_CONFIG.depots[depot.type].initialStock,
-      generationRemaining: ECONOMY_CONFIG.depots[depot.type].firstGenerationDelay,
+      generationRemaining: ECONOMY_CONFIG.depots[depot.type].firstGenerationDelay *
+        (settings?.depotGenerationSeconds[depot.type] ?? ECONOMY_CONFIG.depots[depot.type].generationInterval) /
+        ECONOMY_CONFIG.depots[depot.type].generationInterval,
       nextCollector: 'red',
     })),
     territory: {
@@ -53,20 +60,27 @@ export function transferOnTerritoryTag(invader: Team, deployment: DeploymentStat
 
 export function tickEconomy(
   economy: EconomyState, deployment: DeploymentState, players: Record<Team, PlayerState>, dt: number,
+  settings?: GameSettings,
 ): void {
   for (const team of ['red', 'blue'] as const) {
-    economy.passiveBombRemaining[team] -= dt;
-    while (economy.passiveBombRemaining[team] <= 0) {
-      deployment.inventory[team].bomb++;
-      economy.passiveBombRemaining[team] += ECONOMY_CONFIG.passiveBombInterval;
+    for (const resource of ['wall', 'bomb'] as const) {
+      const interval = settings?.passiveRegenSeconds[resource] ?? (resource === 'bomb' ? ECONOMY_CONFIG.passiveBombInterval : 0);
+      const remaining = resource === 'bomb' ? economy.passiveBombRemaining : economy.passiveWallRemaining;
+      if (interval === 0) { remaining[team] = 0; continue; }
+      remaining[team] -= dt;
+      while (remaining[team] <= 0) {
+        deployment.inventory[team][resource]++;
+        remaining[team] += interval;
+      }
     }
   }
   for (const depot of economy.depots) {
     const config = ECONOMY_CONFIG.depots[depot.type];
+    const interval = settings?.depotGenerationSeconds[depot.type] ?? config.generationInterval;
     depot.generationRemaining -= dt;
     while (depot.generationRemaining <= 0) {
       depot.stock = Math.min(depot.capacity, depot.stock + 1);
-      depot.generationRemaining += config.generationInterval;
+      depot.generationRemaining += interval;
     }
     const occupants = (['red', 'blue'] as const).filter(team => depotContains(depot, players[team].position));
     while (depot.stock > 0 && occupants.length > 0) {

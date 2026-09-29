@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cloneArena, DEFAULT_ARENA, pointInRegion, powerUpRegionFitsArena, WALL_TYPES } from './arena.ts';
+import { cloneArena, BASE_ARENA as DEFAULT_ARENA, pointInRegion, powerUpRegionFitsArena, WALL_TYPES } from './arena.ts';
 import { CaptureTheFlag } from './CaptureTheFlag.ts';
 import { AIM_DEAD_ZONE, BOMB_TYPES, createDeploymentState, DEPLOYABLES, tickDeploymentState, type RuntimeBomb, type RuntimeWall } from './deployables.ts';
 import { Game } from './Game.ts';
