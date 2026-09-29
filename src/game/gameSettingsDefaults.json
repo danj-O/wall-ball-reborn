@@ -3,13 +3,22 @@
   "acceleration": 57,
   "braking": 56,
   "playerMass": 5.3,
-  "startingInventory": { "wall": 8, "bomb": 2 },
-  "passiveRegenSeconds": { "wall": 0, "bomb": 10 },
-  "depotGenerationSeconds": { "wall": 6, "bomb": 6 },
+  "startingInventory": {
+    "wall": 12,
+    "bomb": 8
+  },
+  "passiveRegenSeconds": {
+    "wall": 0,
+    "bomb": 10
+  },
+  "depotGenerationSeconds": {
+    "wall": 6,
+    "bomb": 6
+  },
   "projectiles": {
     "bomb": {
-      "throwForce": 0.8,
-      "lob": 2,
+      "throwForce": 0.65,
+      "lob": 2.3,
       "mass": 1,
       "blastRadius": 2
     },

@@ -5,22 +5,24 @@ import { DEPLOYABLES, type DeployableId, type DeploymentState, type RuntimeBomb,
 import type { EconomyState, RuntimeDepot } from '../game/economy.ts';
 import { POWER_UP_CONFIG, POWER_UPS, type PowerUpPickup, type PowerUpState } from '../game/powerups.ts';
 import { CAMERA_SETTINGS, frameArena } from './camera.ts';
-
-const COLORS = { red: 0xe95750, blue: 0x4a9bf0 };
+import { DEFAULT_APPEARANCE, type AppearanceTheme } from './appearance.ts';
 
 export class ArenaView {
   readonly renderer: THREE.WebGLRenderer;
   readonly camera: THREE.PerspectiveCamera;
   private readonly scene = new THREE.Scene();
-  private readonly sun = new THREE.DirectionalLight(0xfff2de, 3.1);
+  private readonly sun = new THREE.DirectionalLight();
+  private readonly hemisphere = new THREE.HemisphereLight();
+  private readonly tabletop: THREE.Mesh;
+  private theme: AppearanceTheme;
   private readonly arenaGroup = new THREE.Group();
   private readonly wallsGroup = new THREE.Group();
   private readonly depotsGroup = new THREE.Group();
   private readonly deployGroup = new THREE.Group();
   private readonly powerRegionGroup = new THREE.Group();
   private readonly pickupGroup = new THREE.Group();
-  private readonly playerGroups: Record<Team, THREE.Group>;
-  private readonly flagGroups: Record<Team, THREE.Group>;
+  private playerGroups: Record<Team, THREE.Group>;
+  private flagGroups: Record<Team, THREE.Group>;
   private readonly wallMeshes = new Map<string, THREE.Mesh>();
   private readonly depotMeshes = new Map<string, THREE.Mesh>();
   private readonly flagBaseMeshes: THREE.Mesh[] = [];
@@ -43,13 +45,14 @@ export class ArenaView {
   private readonly pointer = new THREE.Vector2();
   private readonly ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
-  constructor(container: HTMLElement, arena: ArenaDefinition) {
+  constructor(container: HTMLElement, arena: ArenaDefinition, theme: AppearanceTheme = DEFAULT_APPEARANCE) {
     this.currentArena = arena;
+    this.theme = theme;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.35;
+    this.renderer.toneMappingExposure = theme.exposure;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
@@ -57,9 +60,14 @@ export class ArenaView {
     this.camera = new THREE.PerspectiveCamera(
       CAMERA_SETTINGS.fovDegrees, 1, CAMERA_SETTINGS.near, CAMERA_SETTINGS.far,
     );
-    this.scene.background = new THREE.Color(0x101923);
-    this.scene.add(new THREE.HemisphereLight(0xddeeff, 0x5d6b72, 1.9));
+    this.scene.background = new THREE.Color(theme.outside);
+    this.hemisphere.color.set(theme.ambientSky);
+    this.hemisphere.groundColor.set(theme.ambientGround);
+    this.hemisphere.intensity = theme.ambientIntensity;
+    this.scene.add(this.hemisphere);
     const sun = this.sun;
+    sun.color.set(theme.keyLight);
+    sun.intensity = theme.keyIntensity;
     sun.position.set(-8, 19, 11);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -80,11 +88,11 @@ export class ArenaView {
     this.scene.add(this.powerRegionGroup);
     this.scene.add(this.pickupGroup);
 
-    const tabletop = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), this.material(0x101923));
-    tabletop.rotation.x = -Math.PI / 2;
-    tabletop.position.y = -1.14;
-    tabletop.receiveShadow = true;
-    this.scene.add(tabletop);
+    this.tabletop = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), this.material(theme.outside));
+    this.tabletop.rotation.x = -Math.PI / 2;
+    this.tabletop.position.y = -1.14;
+    this.tabletop.receiveShadow = true;
+    this.scene.add(this.tabletop);
 
     this.playerGroups = { red: this.makePlayer('red'), blue: this.makePlayer('blue') };
     this.flagGroups = { red: this.makeFlag('red'), blue: this.makeFlag('blue') };
@@ -97,8 +105,37 @@ export class ArenaView {
     this.resize(container, arena);
   }
 
-  private material(color: number, metalness = 0): THREE.MeshStandardMaterial {
+  private material(color: THREE.ColorRepresentation, metalness = 0): THREE.MeshStandardMaterial {
     return new THREE.MeshStandardMaterial({ color, roughness: 0.73, metalness });
+  }
+
+  private shade(color: string, factor: number): THREE.Color {
+    return new THREE.Color(color).multiplyScalar(factor);
+  }
+
+  setTheme(theme: AppearanceTheme): void {
+    this.theme = theme;
+    this.scene.background = new THREE.Color(theme.outside);
+    (this.tabletop.material as THREE.MeshStandardMaterial).color.set(theme.outside);
+    this.sun.color.set(theme.keyLight);
+    this.sun.intensity = theme.keyIntensity;
+    this.hemisphere.color.set(theme.ambientSky);
+    this.hemisphere.groundColor.set(theme.ambientGround);
+    this.hemisphere.intensity = theme.ambientIntensity;
+    this.renderer.toneMappingExposure = theme.exposure;
+    for (const team of ['red', 'blue'] as const) {
+      this.scene.remove(this.playerGroups[team], this.flagGroups[team]);
+      this.disposeChildren(this.playerGroups[team]);
+      this.disposeChildren(this.flagGroups[team]);
+      this.playerGroups[team] = this.makePlayer(team);
+      this.flagGroups[team] = this.makeFlag(team);
+    }
+    for (const group of this.bombGroups.values()) {
+      this.deployGroup.remove(group);
+      this.disposeChildren(group);
+    }
+    this.bombGroups.clear();
+    this.rebuildArena(this.currentArena, this.selectedIds);
   }
 
   private solid(geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
@@ -111,8 +148,8 @@ export class ArenaView {
 
   private makePlayer(team: Team): THREE.Group {
     const group = new THREE.Group();
-    const suit = this.material(COLORS[team]);
-    const dark = this.material(team === 'red' ? 0x8d302e : 0x276099);
+    const suit = this.material(this.theme[team]);
+    const dark = this.material(this.shade(this.theme[team], 0.48));
     const face = this.material(0xf4e7cc);
     const eyes = this.material(0x16202c);
     // Local +Z is forward, matching Game's facing angle.
@@ -153,8 +190,8 @@ export class ArenaView {
   private makeFlag(team: Team): THREE.Group {
     const group = new THREE.Group();
     group.userData.flagId = `flag:${team}`;
-    const pole = this.material(0xe7edf1, 0.25);
-    const cloth = this.material(COLORS[team]);
+    const pole = this.material(this.theme.stone, 0.15);
+    const cloth = this.material(this.theme[team]);
     group.add(this.solid(new THREE.CylinderGeometry(0.2, 0.22, 0.11, 12), pole, 0, 0.06, 0));
     group.add(this.solid(new THREE.CylinderGeometry(0.045, 0.045, 1.5, 8), pole, 0, 0.83, 0));
     const pennant = new THREE.Shape();
@@ -213,11 +250,11 @@ export class ArenaView {
     const centerZ = (b.minZ + b.maxZ) / 2;
 
     this.arenaGroup.add(this.solid(
-      new THREE.BoxGeometry(width + 1.5, 0.28, depth + 1.5), this.material(0x172636), centerX, -0.98, centerZ,
+      new THREE.BoxGeometry(width + 1.5, 0.28, depth + 1.5), this.material(this.shade(this.theme.outside, 1.25)), centerX, -0.98, centerZ,
     ));
     const floorMaterials = [
-      this.material(0x263b4d), this.material(0x263b4d), this.material(0x33495a),
-      this.material(0x172636), this.material(0x263b4d), this.material(0x263b4d),
+      this.material(this.shade(this.theme.field, 0.62)), this.material(this.shade(this.theme.field, 0.62)), this.material(this.theme.field),
+      this.material(this.shade(this.theme.field, 0.42)), this.material(this.shade(this.theme.field, 0.62)), this.material(this.shade(this.theme.field, 0.62)),
     ];
     const floor = this.solid(new THREE.BoxGeometry(width + 0.9, 0.8, depth + 0.9), floorMaterials[0], centerX, -0.4, centerZ);
     floor.material = floorMaterials;
@@ -229,21 +266,22 @@ export class ArenaView {
     const gridGeometry = new THREE.BufferGeometry();
     gridGeometry.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
     this.arenaGroup.add(new THREE.LineSegments(
-      gridGeometry, new THREE.LineBasicMaterial({ color: 0x455e6e, transparent: true, opacity: 0.5 }),
+      gridGeometry, new THREE.LineBasicMaterial({ color: this.theme.sand, transparent: true, opacity: 0.16 }),
     ));
 
     for (const region of arena.territories.contested) {
       const area = region.bounds;
       const patch = new THREE.Mesh(
         new THREE.PlaneGeometry(area.maxX - area.minX, area.maxZ - area.minZ),
-        new THREE.MeshBasicMaterial({ color: 0x527b55, transparent: true, opacity: 0.19, depthWrite: false }),
+        new THREE.MeshStandardMaterial({ color: this.theme.contestedField, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1 }),
       );
       patch.rotation.x = -Math.PI / 2;
       patch.position.set((area.minX + area.maxX) / 2, 0.018, (area.minZ + area.maxZ) / 2);
+      patch.receiveShadow = true;
       this.arenaGroup.add(patch);
     }
 
-    const edge = this.material(0x8599a4);
+    const edge = this.material(this.shade(this.theme.stone, 0.83));
     for (const [x, z, w, d] of [
       [centerX, b.minZ - 0.21, width + 0.8, 0.42],
       [centerX, b.maxZ + 0.21, width + 0.8, 0.42],
@@ -257,10 +295,10 @@ export class ArenaView {
       base.position.set(p.x, 0, p.z);
       const bottom = this.solid(
         new THREE.CylinderGeometry(1.25, 1.37, 0.24, 32),
-        this.material(team === 'red' ? 0x8e3938 : 0x2d6091), 0, 0.12, 0,
+        this.material(this.shade(this.theme[team], 0.5)), 0, 0.12, 0,
       );
       const top = this.solid(new THREE.CylinderGeometry(1.05, 1.05, 0.06, 32),
-        this.material(selected.has(`flag:${team}`) ? 0xffde81 : COLORS[team]), 0, 0.27, 0);
+        this.material(selected.has(`flag:${team}`) ? this.theme.sand : this.theme[team]), 0, 0.27, 0);
       for (const mesh of [bottom, top]) {
         mesh.userData.flagId = `flag:${team}`;
         this.flagBaseMeshes.push(mesh);
@@ -268,7 +306,7 @@ export class ArenaView {
       }
       if (selected.has(`flag:${team}`)) {
         const ring = new THREE.Mesh(new THREE.TorusGeometry(1.42, 0.08, 8, 40),
-          new THREE.MeshBasicMaterial({ color: 0xffdf82 }));
+          new THREE.MeshBasicMaterial({ color: this.theme.sand }));
         ring.rotation.x = Math.PI / 2;
         ring.position.y = 0.08;
         base.add(ring);
@@ -286,8 +324,8 @@ export class ArenaView {
     for (const region of arena.powerupSpawnAreas) {
       const area = region.bounds;
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(area.maxX - area.minX, area.maxZ - area.minZ),
-        new THREE.MeshBasicMaterial({ color: selected.has(region.id) ? 0xf4d178 : 0xc7a7eb,
-          transparent: true, opacity: selected.has(region.id) ? 0.3 : 0.15, side: THREE.DoubleSide, depthWrite: false }));
+        new THREE.MeshBasicMaterial({ color: this.theme.sand,
+          transparent: true, opacity: selected.has(region.id) ? 0.32 : 0.15, side: THREE.DoubleSide, depthWrite: false }));
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set((area.minX + area.maxX) / 2, 0.035, (area.minZ + area.maxZ) / 2);
       mesh.userData.powerRegionId = region.id;
@@ -335,10 +373,11 @@ export class ArenaView {
       const selected = selectedIds.has(wall.id);
       const material = WALL_TYPES[wall.type];
       const health = runtime ? Math.max(0, runtime.hp / material.maxHealth) : 1;
-      const sides = this.material(selected ? 0xe9b849 : material.appearance.side);
-      const top = this.material(selected ? 0xffdf82 : material.appearance.top);
-      if (runtime?.owner === 'red') top.color.lerp(new THREE.Color(COLORS.red), 0.32);
-      if (runtime?.owner === 'blue') top.color.lerp(new THREE.Color(COLORS.blue), 0.32);
+      const wallColor = this.theme[wall.type];
+      const sides = this.material(selected ? this.theme.sand : this.shade(wallColor, 0.72));
+      const top = this.material(selected ? this.theme.sand : this.shade(wallColor, 1.1));
+      if (runtime?.owner === 'red') top.color.lerp(new THREE.Color(this.theme.red), 0.32);
+      if (runtime?.owner === 'blue') top.color.lerp(new THREE.Color(this.theme.blue), 0.32);
       if (health < 1) {
         sides.color.multiplyScalar(0.65 + health * 0.35);
         top.color.multiplyScalar(0.65 + health * 0.35);
@@ -380,7 +419,7 @@ export class ArenaView {
     for (const depot of depots) {
       const runtime = 'stock' in depot ? depot as RuntimeDepot : null;
       const selected = editing && this.selectedIds.has(depot.id);
-      const color = depot.type === 'wall' ? 0xe5bd76 : 0xf28b67;
+      const color = depot.type === 'wall' ? this.theme.sand : this.theme.wood;
       const group = new THREE.Group();
       group.position.set(depot.position.x, 0, depot.position.z);
       const zone = new THREE.Mesh(
@@ -399,21 +438,21 @@ export class ArenaView {
       rim.position.y = 0.065;
       group.add(rim);
       if (depot.type === 'wall') {
-        const icon = this.solid(new THREE.BoxGeometry(0.8, 0.52, 0.25), this.material(0xc49b6d), 0, 0.31, 0);
+        const icon = this.solid(new THREE.BoxGeometry(0.8, 0.52, 0.25), this.material(this.theme.wood), 0, 0.31, 0);
         icon.castShadow = false;
         group.add(icon);
       } else {
-        const icon = this.solid(new THREE.SphereGeometry(0.34, 12, 10), this.material(0x343a42), 0, 0.4, 0);
+        const icon = this.solid(new THREE.SphereGeometry(0.34, 12, 10), this.material(this.theme.uiNeutral), 0, 0.4, 0);
         icon.castShadow = false;
         group.add(icon);
-        group.add(this.solid(new THREE.CylinderGeometry(0.04, 0.04, 0.18), this.material(0xffc16b), 0, 0.79, 0));
+        group.add(this.solid(new THREE.CylinderGeometry(0.04, 0.04, 0.18), this.material(this.theme.sand), 0, 0.79, 0));
       }
       const stock = runtime?.stock ?? 1;
       const labelCanvas = document.createElement('canvas');
       labelCanvas.width = 256;
       labelCanvas.height = 96;
       const context = labelCanvas.getContext('2d')!;
-      context.fillStyle = 'rgba(12,26,36,0.86)';
+      context.fillStyle = this.theme.uiNeutral;
       context.fillRect(8, 8, 240, 80);
       context.fillStyle = '#fff2d5';
       context.font = 'bold 54px system-ui';
@@ -437,7 +476,7 @@ export class ArenaView {
     projectile.name = 'projectile';
     const mega = bomb.definitionId === 'mega-bomb';
     const dark = this.material(mega ? 0x6b327e : 0x202b34, 0.2);
-    const teamColor = this.material(mega ? 0xf5a7f1 : bomb.owner === 'red' ? COLORS.red : COLORS.blue);
+    const teamColor = this.material(mega ? 0xf5a7f1 : this.theme[bomb.owner]);
     projectile.add(this.solid(new THREE.SphereGeometry(bomb.physicalRadius, 16, 12), dark, 0, 0, 0));
     const band = this.solid(new THREE.TorusGeometry(bomb.physicalRadius * 0.85, 0.045, 8, 24), teamColor, 0, 0, 0);
     band.rotation.x = Math.PI / 2;

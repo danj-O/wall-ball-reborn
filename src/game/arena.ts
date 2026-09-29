@@ -13,8 +13,8 @@ export type DepotDefinition = { id: string; type: DepotType; position: Vec2; rad
 export const ARENA_SIZE = { halfWidth: 25, halfDepth: 13, contestedHalfWidth: 3.5 } as const;
 export const ARENA_DIMENSIONS = { width: { min: 30, max: 80 }, length: { min: 18, max: 48 } } as const;
 export const WALL_TYPES = {
-  wood: { label: 'Wood', maxHealth: 100, appearance: { side: 0x92694c, top: 0xc49b6d }, placementFootprint: { width: 2.25, depth: 0.5 } },
-  stone: { label: 'Stone', maxHealth: 200, appearance: { side: 0x788b95, top: 0xb3c1c4 }, placementFootprint: { width: 2.4, depth: 0.8 } },
+  wood: { label: 'Wood', maxHealth: 100, placementFootprint: { width: 2.25, depth: 0.5 } },
+  stone: { label: 'Stone', maxHealth: 200, placementFootprint: { width: 2.4, depth: 0.8 } },
 } as const;
 export const DEFAULT_PLAYER_WALL_TYPE: WallType = 'wood';
 export const WALL_HEIGHT = 1.35;

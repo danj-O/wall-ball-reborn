@@ -7,6 +7,7 @@ import { AIM_DEAD_ZONE, DEPLOYABLES, type DeployableId } from './game/deployable
 import { TouchControls, type ActionSlot } from './input/TouchControls.ts';
 import { CONTROL_SIZE_RANGE, MOVE_AREA_RANGE, MOVE_INSET_RANGE, normalizeControlLayout, type ControlId, type ControlLayout } from './input/controlLayout.ts';
 import { ArenaView } from './view/ArenaView.ts';
+import { APPEARANCE_COLOR_FIELDS, APPEARANCE_LIGHT_RANGES, APPEARANCE_STORAGE_KEY, DEFAULT_APPEARANCE, loadAppearance, type AppearanceTheme } from './view/appearance.ts';
 import { DEFAULT_GAME_SETTINGS, loadGameSettings } from './game/gameSettings.ts';
 import { GAME_SETTING_RANGES, type GameSettings, type ProjectileTuning } from './game/gameSettingsSchema.ts';
 import { alignSelection, deleteSelection, distributeSelection, duplicateSelection, EditorHistory, entityCenter, mirrorSelection, objectsInBox, rotateSelection, selectObject, snapshot, translateSelection, type EditResult } from './editor/arenaEditor.ts';
@@ -15,6 +16,7 @@ import { ACTIVE_MAP_KEY, loadLocalMaps, MAP_SCHEMA_VERSION, saveLocalMaps, uniqu
 const CONTROL_STORAGE_KEY = 'wall-ball-reborn-controls-v1';
 const GAME_SETTINGS_STORAGE_KEY = 'wall-ball-reborn-game-settings-v1';
 const GAME_DEFAULT_SAVED_KEY = 'wall-ball-reborn-game-default-saved';
+const APPEARANCE_DEFAULT_SAVED_KEY = 'wall-ball-reborn-appearance-default-saved';
 const ARENA_DEFAULT_SAVED_KEY = 'wall-ball-reborn-arena-default-saved';
 
 const bundled = import.meta.glob('./maps/*.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
@@ -35,9 +37,11 @@ localStorage.setItem(ACTIVE_MAP_KEY, activeMapKey);
 let arena = workingCopy(activeMap);
 const mode = new CaptureTheFlag();
 let gameSettings = loadGameSettings(localStorage);
+let appearance = loadAppearance(localStorage);
 let game = new Game(arena, mode, Math.random, gameSettings);
 let editing = false;
 let editingControls = false;
+let appearanceOpen = false;
 let selectedControl: ControlId = 'red-move';
 let selectedId: string | null = null;
 let selectedIds = new Set<string>();
@@ -68,7 +72,7 @@ app.innerHTML = `
     </section>
     <aside id="sidebar" class="sidebar" hidden>
       <div class="menu-heading"><span class="brand-mark">WB</span><div><strong>WALL BALL</strong><small id="mode-label">MATCH / CAPTURE THE FLAG</small></div></div>
-      <div class="menu-actions"><button id="new-match-button" type="button">Start / New Match</button><button id="touch-toggle" type="button">Touch Controls</button><button id="edit-button" type="button">Customize Arena</button><button id="controls-button" type="button">Customize Controls</button><button id="game-settings-button" type="button" aria-expanded="false">Game Tuning</button><button id="reset-button" type="button">Return to Start</button><button id="fullscreen-button" type="button" aria-pressed="false">Enter Fullscreen</button></div>
+      <div class="menu-actions"><button id="new-match-button" type="button">Start / New Match</button><button id="touch-toggle" type="button">Touch Controls</button><button id="edit-button" type="button">Customize Arena</button><button id="controls-button" type="button">Customize Controls</button><button id="game-settings-button" type="button" aria-expanded="false">Game Tuning</button><button id="appearance-button" type="button">Appearance</button><button id="reset-button" type="button">Return to Start</button><button id="fullscreen-button" type="button" aria-pressed="false">Enter Fullscreen</button></div>
       <div id="game-settings-panel" class="game-settings-panel" hidden>
         <div class="section-kicker">GAME TUNING</div><p class="hint">Speed is units/sec; acceleration and braking are units/sec². Player and projectile weight affect collisions. Blast radius is in arena units. Starting supplies apply next match; generation rates and movement apply now. A regeneration value of 0 turns it off.</p>
         <div id="game-settings-sliders"></div>
@@ -118,6 +122,13 @@ app.innerHTML = `
       <div id="developer-control-defaults" class="developer-controls" hidden><button id="save-code-default" class="editor-wide-button" type="button">Save as Code Default</button><p class="hint">Developer mode: use this layout for new devices and Reset Layout.</p><p id="control-default-status" class="control-default-status" role="status" aria-live="polite"></p></div>
       <div class="editor-actions"><button id="reset-controls" type="button">Reset Layout</button><button id="done-controls" type="button">Done</button></div>
     </div>
+    <div id="appearance-panel" class="editor-dock appearance-dock" hidden>
+      <div class="editor-heading"><strong>ARENA THEME</strong><span>Warm Meadow · changes preview live</span></div>
+      <button id="done-appearance" class="editor-wide-button" type="button">Done</button>
+      <div id="appearance-fields"></div>
+      <div id="developer-appearance-defaults" class="developer-controls" hidden><button id="save-appearance-default" class="editor-wide-button" type="button">Dev Save as Default</button><p class="hint">Writes the global preset for new devices.</p><p id="appearance-default-status" class="control-default-status" role="status" aria-live="polite"></p></div>
+      <button id="reset-appearance" class="editor-wide-button" type="button">Reset Theme</button>
+    </div>
   </main>
   <div id="match-overlay" class="match-overlay" role="dialog" aria-live="polite" aria-label="Match state">
     <div id="ready-screen" class="match-card"><div class="section-kicker">CAPTURE THE FLAG</div><h2>WALL BALL</h2><div class="instruction-grid">
@@ -135,13 +146,14 @@ app.innerHTML = `
   <div id="rotate-overlay" class="rotate-overlay" hidden role="status" aria-live="polite"><div class="rotate-icon" aria-hidden="true">↻</div><strong>Rotate your device</strong><span>Wall Ball is designed for landscape play.</span></div>`;
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!;
-const view = new ArenaView(viewport, arena);
+const view = new ArenaView(viewport, arena, appearance);
 const status = document.querySelector<HTMLDivElement>('#status')!;
 const editButton = document.querySelector<HTMLButtonElement>('#edit-button')!;
 const resetButton = document.querySelector<HTMLButtonElement>('#reset-button')!;
 const playPanel = document.querySelector<HTMLDivElement>('#play-panel')!;
 const editPanel = document.querySelector<HTMLDivElement>('#edit-panel')!;
 const controlsPanel = document.querySelector<HTMLDivElement>('#controls-panel')!;
+const appearancePanel = document.querySelector<HTMLDivElement>('#appearance-panel')!;
 const controlsButton = document.querySelector<HTMLButtonElement>('#controls-button')!;
 const selection = document.querySelector<HTMLElement>('#selection')!;
 const touchToggle = document.querySelector<HTMLButtonElement>('#touch-toggle')!;
@@ -160,6 +172,73 @@ const resultsScreen = document.querySelector<HTMLDivElement>('#results-screen')!
 const debugEnabled = new URLSearchParams(location.search).has('debug');
 let touchController: TouchControls;
 const visibleAbilitySlots: Record<Team, boolean> = { red: false, blue: false };
+
+function applyAppearance(next: AppearanceTheme): void {
+  appearance = next;
+  localStorage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(appearance));
+  document.documentElement.style.setProperty('--ui-neutral', appearance.uiNeutral);
+  document.documentElement.style.setProperty('--team-red', appearance.red);
+  document.documentElement.style.setProperty('--team-blue', appearance.blue);
+  document.documentElement.style.setProperty('--outside', appearance.outside);
+  view.setTheme(appearance);
+}
+document.documentElement.style.setProperty('--ui-neutral', appearance.uiNeutral);
+document.documentElement.style.setProperty('--team-red', appearance.red);
+document.documentElement.style.setProperty('--team-blue', appearance.blue);
+document.documentElement.style.setProperty('--outside', appearance.outside);
+const appearanceFields = document.querySelector<HTMLElement>('#appearance-fields')!;
+for (const [field, label] of APPEARANCE_COLOR_FIELDS) {
+  const row = document.createElement('label');
+  row.className = 'appearance-setting';
+  row.textContent = label;
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.id = `appearance-${field}`;
+  input.value = appearance[field];
+  input.addEventListener('input', () => applyAppearance({ ...appearance, [field]: input.value.toUpperCase() }));
+  row.append(input);
+  appearanceFields.append(row);
+}
+for (const [field, label] of [['keyIntensity', 'Key light strength'], ['ambientIntensity', 'Ambient fill strength'], ['exposure', 'Scene exposure']] as const) {
+  const range = APPEARANCE_LIGHT_RANGES[field];
+  const row = document.createElement('label');
+  row.className = 'control-setting';
+  row.innerHTML = `<span>${label}</span><output id="appearance-${field}-value"></output><input id="appearance-${field}" type="range" min="${range.min}" max="${range.max}" step="${range.step}">`;
+  row.querySelector('input')!.addEventListener('input', event => {
+    applyAppearance({ ...appearance, [field]: Number((event.currentTarget as HTMLInputElement).value) });
+    refreshAppearanceInputs();
+  });
+  appearanceFields.append(row);
+}
+function refreshAppearanceInputs(): void {
+  for (const [field] of APPEARANCE_COLOR_FIELDS) document.querySelector<HTMLInputElement>(`#appearance-${field}`)!.value = appearance[field];
+  for (const field of ['keyIntensity', 'ambientIntensity', 'exposure'] as const) {
+    document.querySelector<HTMLInputElement>(`#appearance-${field}`)!.value = String(appearance[field]);
+    document.querySelector<HTMLOutputElement>(`#appearance-${field}-value`)!.value = appearance[field].toFixed(1);
+  }
+}
+refreshAppearanceInputs();
+document.querySelector<HTMLButtonElement>('#appearance-button')!.addEventListener('click', () => {
+  if (editing) editButton.click();
+  if (editingControls) finishControlsCustomization();
+  appearanceOpen = true;
+  setMenuOpen(false);
+  held.clear();
+  keyboardOwned.clear();
+  touchController.cancelAll();
+  touchMove.red = { x: 0, z: 0 };
+  touchMove.blue = { x: 0, z: 0 };
+  refreshAppearanceInputs();
+  updateUi();
+});
+document.querySelector<HTMLButtonElement>('#done-appearance')!.addEventListener('click', () => {
+  appearanceOpen = false;
+  updateUi();
+});
+document.querySelector<HTMLButtonElement>('#reset-appearance')!.addEventListener('click', () => {
+  applyAppearance({ ...DEFAULT_APPEARANCE });
+  refreshAppearanceInputs();
+});
 
 function refreshAbilityControls(): void {
   for (const team of ['red', 'blue'] as const) {
@@ -188,7 +267,7 @@ function updateUi(): void {
   status.innerHTML = phase === 'finished'
     ? `<span class="status-kicker">MATCH COMPLETE</span><strong>${game.match.winner?.toUpperCase()} WINS</strong>`
     : `<span class="status-kicker">${editing || editingControls ? 'EDITOR ACTIVE' : phase === 'ready' ? 'READY' : 'MATCH LIVE'}</span><strong>${editing ? 'Customize Arena' : editingControls ? 'Customize Controls' : phase === 'ready' ? 'Start when both players are ready.' : game.state.event}</strong>`;
-  matchOverlay.hidden = editing || editingControls || phase === 'playing';
+  matchOverlay.hidden = editing || editingControls || appearanceOpen || phase === 'playing';
   readyScreen.hidden = phase !== 'ready';
   resultsScreen.hidden = phase !== 'finished';
   if (phase === 'finished') updateResultsUi();
@@ -198,6 +277,7 @@ function updateUi(): void {
   playPanel.hidden = editing || editingControls;
   editPanel.hidden = !editing;
   controlsPanel.hidden = !editingControls;
+  appearancePanel.hidden = !appearanceOpen;
   const wall = selectedWall();
   const depot = selectedDepot();
   const flag = selectedFlag();
@@ -240,7 +320,7 @@ function updateUi(): void {
     ? `${wall ? `${wall.type} wall · ${Math.round(wall.rotation * 180 / Math.PI)}°` : depot ? `${depot.type} depot` : region ? 'Power-up region' : 'Flag'} · X ${center.x.toFixed(2)} · Z ${center.z.toFixed(2)}`
     : `${selectedIds.size} selected · ${counts.map(([name, count]) => `${count} ${name}`).join(', ')}`;
   if (depot) document.querySelector<HTMLInputElement>('#depot-capacity')!.value = String(depot.capacity);
-  touchControls.hidden = editing || (!touchVisible && !editingControls) || menuOpen || portraitBlocked || (phase !== 'playing' && !editingControls);
+  touchControls.hidden = editing || appearanceOpen || (!touchVisible && !editingControls) || menuOpen || portraitBlocked || (phase !== 'playing' && !editingControls);
   sidebar.hidden = !menuOpen;
   menuScrim.hidden = !menuOpen;
   menuButton.setAttribute('aria-expanded', String(menuOpen));
@@ -591,6 +671,26 @@ if (import.meta.env.DEV) {
   document.querySelector<HTMLElement>('#developer-control-defaults')!.hidden = false;
   document.querySelector<HTMLElement>('#developer-game-defaults')!.hidden = false;
   document.querySelector<HTMLElement>('#developer-arena-defaults')!.hidden = false;
+  document.querySelector<HTMLElement>('#developer-appearance-defaults')!.hidden = false;
+  document.querySelector<HTMLButtonElement>('#save-appearance-default')!.addEventListener('click', async () => {
+    if (!await confirmCodeDefault('src/view/appearanceDefaults.json', 'Save appearance default?')) return;
+    const button = document.querySelector<HTMLButtonElement>('#save-appearance-default')!;
+    const status = document.querySelector<HTMLElement>('#appearance-default-status')!;
+    button.disabled = true;
+    status.textContent = 'Saving…';
+    sessionStorage.setItem(APPEARANCE_DEFAULT_SAVED_KEY, '1');
+    try {
+      const response = await fetch('/__dev/appearance-defaults', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(appearance),
+      });
+      if (response.status === 404) throw new Error('Save route unavailable. Restart npm run dev, then reload this page.');
+      if (!response.ok) throw new Error(`Save failed (${response.status})`);
+      status.textContent = 'Saved in src/view/appearanceDefaults.json. Commit the file to share this theme.';
+    } catch (error) {
+      sessionStorage.removeItem(APPEARANCE_DEFAULT_SAVED_KEY);
+      status.textContent = error instanceof Error ? error.message : 'Could not save appearance';
+    } finally { button.disabled = false; }
+  });
   document.querySelector<HTMLButtonElement>('#save-code-default')!.addEventListener('click', async () => {
     if (!await confirmCodeDefault('src/input/mobileControlDefaults.json', 'Save control default?')) return;
     const button = document.querySelector<HTMLButtonElement>('#save-code-default')!;
@@ -709,6 +809,7 @@ touchToggle.addEventListener('click', () => {
 function setMenuOpen(open: boolean): void {
   menuOpen = open;
   if (open) {
+    appearanceOpen = false;
     touchController.cancelAll();
     held.clear();
     keyboardOwned.clear();
@@ -1199,7 +1300,7 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 window.addEventListener('keydown', event => {
   if (isTextEntryTarget(event.target) || !document.querySelector<HTMLElement>('#map-name-dialog')!.hidden ||
       !document.querySelector<HTMLElement>('#developer-confirm')!.hidden) return;
-  if (menuOpen || portraitBlocked) {
+  if (menuOpen || appearanceOpen || portraitBlocked) {
     if (menuOpen && event.code === 'Escape') setMenuOpen(false);
     return;
   }
@@ -1257,7 +1358,7 @@ window.addEventListener('keyup', event => {
     held.delete(event.code);
     return;
   }
-  if (menuOpen || portraitBlocked || editingControls || game.match.phase !== 'playing') {
+  if (menuOpen || appearanceOpen || portraitBlocked || editingControls || game.match.phase !== 'playing') {
     keyboardOwned.delete(event.code);
     held.delete(event.code);
     return;
@@ -1309,10 +1410,10 @@ let lastTheftSequence = 0;
 let toastUntil = 0;
 let lastDebug = 0;
 function frame(now: number): void {
-  if (game.match.phase === 'playing' && !editing && !editingControls) accumulator += Math.min((now - previous) / 1000, 0.1);
+  if (game.match.phase === 'playing' && !editing && !editingControls && !appearanceOpen) accumulator += Math.min((now - previous) / 1000, 0.1);
   else accumulator = 0;
   previous = now;
-  if (!editing && !editingControls && game.match.phase === 'playing') {
+  if (!editing && !editingControls && !appearanceOpen && game.match.phase === 'playing') {
     while (accumulator >= 1 / 60) {
       game.update(1 / 60, input());
       accumulator -= 1 / 60;
@@ -1364,6 +1465,13 @@ if (sessionStorage.getItem(GAME_DEFAULT_SAVED_KEY) === '1') {
   settingsButton.setAttribute('aria-expanded', 'true');
   document.querySelector<HTMLElement>('#game-default-status')!.textContent =
     'Saved as the game default. New devices and Reset Tuning use this preset.';
+  updateUi();
+}
+if (sessionStorage.getItem(APPEARANCE_DEFAULT_SAVED_KEY) === '1') {
+  sessionStorage.removeItem(APPEARANCE_DEFAULT_SAVED_KEY);
+  appearanceOpen = true;
+  document.querySelector<HTMLElement>('#appearance-default-status')!.textContent =
+    'Appearance default saved. New devices use this theme after the file is committed.';
   updateUi();
 }
 if (justSavedBuiltInId && builtInMaps.some(map => map.id === justSavedBuiltInId)) {

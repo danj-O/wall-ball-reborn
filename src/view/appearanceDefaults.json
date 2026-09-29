@@ -1,0 +1,17 @@
+{
+  "field": "#559270",
+  "contestedField": "#718B78",
+  "outside": "#293B34",
+  "stone": "#C4C8C1",
+  "wood": "#A97546",
+  "sand": "#D4B77A",
+  "red": "#EE5A45",
+  "blue": "#4E9ED6",
+  "uiNeutral": "#263238",
+  "keyLight": "#FFF2DF",
+  "ambientSky": "#E9EFE4",
+  "ambientGround": "#77816F",
+  "keyIntensity": 1.5,
+  "ambientIntensity": 0.9,
+  "exposure": 1.05
+}

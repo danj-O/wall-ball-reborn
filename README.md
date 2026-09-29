@@ -21,6 +21,8 @@ Vite uses `/wall-ball-reborn/` for builds and previews, and `/` for `npm run dev
 
 The game uses a fixed viewport with no document scrolling. The **Menu** tab opens the match controls, rules, and inventory without keeping a toolbar across the arena. Its **Enter Fullscreen** action uses the browser API where supported. On browsers that cannot fullscreen a page, **Display Options** explains how to launch the game from the Home Screen instead. The included web app manifest requests a fullscreen landscape presentation for installed launches; actual system-bar behavior depends on the browser and device. On a clearly portrait viewport, a rotate-device prompt covers the game until landscape returns.
 
+**Menu → Appearance** opens a compact dock beside the arena. Color wells and light sliders preview changes immediately, and the chosen theme is saved in this browser. **Reset Theme** restores the current project default. On the Vite development server, **Dev Save as Default** uses the existing confirmation flow to write [appearanceDefaults.json](src/view/appearanceDefaults.json); commit that file to make the palette the default on other devices. The appearance preset is global and separate from arena maps. [Warm Meadow visual pass](APPEARANCE_RESULTS.md) records the default values and review notes.
+
 ## Controls and rules
 
 | Action | Red | Blue |
