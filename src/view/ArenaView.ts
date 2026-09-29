@@ -35,12 +35,16 @@ export class ArenaView {
   }>();
   private wallSignature = '';
   private depotSignature = '';
-  private selectedId: string | null = null;
+  private selectedIds = new Set<string>();
+  private currentArena: ArenaDefinition;
+  private editorGhost: THREE.Mesh | null = null;
+  private editorGhostTool: string | null = null;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   constructor(container: HTMLElement, arena: ArenaDefinition) {
+    this.currentArena = arena;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -85,7 +89,7 @@ export class ArenaView {
     this.playerGroups = { red: this.makePlayer('red'), blue: this.makePlayer('blue') };
     this.flagGroups = { red: this.makeFlag('red'), blue: this.makeFlag('blue') };
     this.rebuildArena(arena);
-    new ResizeObserver(() => this.resize(container, arena)).observe(container);
+    new ResizeObserver(() => this.resize(container, this.currentArena)).observe(container);
     this.resize(container, arena);
   }
 
@@ -189,7 +193,9 @@ export class ArenaView {
     });
   }
 
-  rebuildArena(arena: ArenaDefinition, selectedId: string | null = null): void {
+  rebuildArena(arena: ArenaDefinition, selectedIds: ReadonlySet<string> | string | null = null): void {
+    this.currentArena = arena;
+    const selected = typeof selectedIds === 'string' ? new Set([selectedIds]) : new Set(selectedIds ?? []);
     this.clearArena();
     this.flagBaseMeshes.length = 0;
     const b = arena.bounds;
@@ -254,13 +260,13 @@ export class ArenaView {
         this.material(team === 'red' ? 0x8e3938 : 0x2d6091), 0, 0.12, 0,
       );
       const top = this.solid(new THREE.CylinderGeometry(1.05, 1.05, 0.06, 32),
-        this.material(selectedId === `flag:${team}` ? 0xffde81 : COLORS[team]), 0, 0.27, 0);
+        this.material(selected.has(`flag:${team}`) ? 0xffde81 : COLORS[team]), 0, 0.27, 0);
       for (const mesh of [bottom, top]) {
         mesh.userData.flagId = `flag:${team}`;
         this.flagBaseMeshes.push(mesh);
         base.add(mesh);
       }
-      if (selectedId === `flag:${team}`) {
+      if (selected.has(`flag:${team}`)) {
         const ring = new THREE.Mesh(new THREE.TorusGeometry(1.42, 0.08, 8, 40),
           new THREE.MeshBasicMaterial({ color: 0xffdf82 }));
         ring.rotation.x = Math.PI / 2;
@@ -270,7 +276,7 @@ export class ArenaView {
       this.arenaGroup.add(base);
     }
 
-    this.selectedId = selectedId;
+    this.selectedIds = selected;
     this.wallSignature = '';
     this.depotSignature = '';
     this.syncWalls(arena.walls, true);
@@ -280,8 +286,8 @@ export class ArenaView {
     for (const region of arena.powerupSpawnAreas) {
       const area = region.bounds;
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(area.maxX - area.minX, area.maxZ - area.minZ),
-        new THREE.MeshBasicMaterial({ color: region.id === selectedId ? 0xf4d178 : 0xc7a7eb,
-          transparent: true, opacity: region.id === selectedId ? 0.3 : 0.15, side: THREE.DoubleSide, depthWrite: false }));
+        new THREE.MeshBasicMaterial({ color: selected.has(region.id) ? 0xf4d178 : 0xc7a7eb,
+          transparent: true, opacity: selected.has(region.id) ? 0.3 : 0.15, side: THREE.DoubleSide, depthWrite: false }));
       mesh.rotation.x = -Math.PI / 2;
       mesh.position.set((area.minX + area.maxX) / 2, 0.035, (area.minZ + area.maxZ) / 2);
       mesh.userData.powerRegionId = region.id;
@@ -290,16 +296,43 @@ export class ArenaView {
     }
   }
 
+  setEditorGhost(tool: 'wood' | 'stone' | 'wall-depot' | 'bomb-depot' | 'power-region' | null,
+    point?: Vec2, valid = true): void {
+    if (tool && point && this.editorGhost && this.editorGhostTool === tool) {
+      this.editorGhost.position.set(point.x, tool === 'wood' || tool === 'stone' ? WALL_HEIGHT / 2 : 0.06, point.z);
+      (this.editorGhost.material as THREE.MeshBasicMaterial).color.setHex(valid ? 0x9beaaf : 0xff746e);
+      return;
+    }
+    if (this.editorGhost) {
+      this.scene.remove(this.editorGhost);
+      this.editorGhost.geometry.dispose();
+      (this.editorGhost.material as THREE.Material).dispose();
+      this.editorGhost = null;
+      this.editorGhostTool = null;
+    }
+    if (!tool || !point) return;
+    const geometry = tool === 'wood' || tool === 'stone'
+      ? new THREE.BoxGeometry(WALL_TYPES[tool].placementFootprint.width, WALL_HEIGHT, WALL_TYPES[tool].placementFootprint.depth)
+      : tool === 'power-region' ? new THREE.BoxGeometry(5, 0.04, 5)
+        : new THREE.CylinderGeometry(1.7, 1.7, 0.04, 36);
+    const ghost = new THREE.Mesh(geometry,
+      new THREE.MeshBasicMaterial({ color: valid ? 0x9beaaf : 0xff746e, transparent: true, opacity: 0.48, depthWrite: false }));
+    ghost.position.set(point.x, tool === 'wood' || tool === 'stone' ? WALL_HEIGHT / 2 : 0.06, point.z);
+    this.scene.add(ghost);
+    this.editorGhost = ghost;
+    this.editorGhostTool = tool;
+  }
+
   private syncWalls(walls: readonly import('../game/arena.ts').WallDefinition[], editing: boolean): void {
-    const selectedId = editing ? this.selectedId : null;
-    const signature = JSON.stringify([editing, selectedId, walls]);
+    const selectedIds = editing ? this.selectedIds : new Set<string>();
+    const signature = JSON.stringify([editing, [...selectedIds], walls]);
     if (signature === this.wallSignature) return;
     this.wallSignature = signature;
     this.disposeChildren(this.wallsGroup);
     this.wallMeshes.clear();
     for (const wall of walls) {
       const runtime = 'hp' in wall ? wall as RuntimeWall : null;
-      const selected = wall.id === selectedId;
+      const selected = selectedIds.has(wall.id);
       const material = WALL_TYPES[wall.type];
       const health = runtime ? Math.max(0, runtime.hp / material.maxHealth) : 1;
       const sides = this.material(selected ? 0xe9b849 : material.appearance.side);
@@ -337,7 +370,7 @@ export class ArenaView {
   }
 
   private syncDepots(depots: readonly DepotDefinition[], editing: boolean): void {
-    const signature = JSON.stringify([editing, editing ? this.selectedId : null,
+    const signature = JSON.stringify([editing, editing ? [...this.selectedIds] : [],
       depots.map(depot => [depot.id, depot.type, depot.position.x, depot.position.z, depot.radius, depot.capacity,
         'stock' in depot ? depot.stock : 1])]);
     if (signature === this.depotSignature) return;
@@ -346,7 +379,7 @@ export class ArenaView {
     this.depotMeshes.clear();
     for (const depot of depots) {
       const runtime = 'stock' in depot ? depot as RuntimeDepot : null;
-      const selected = editing && depot.id === this.selectedId;
+      const selected = editing && this.selectedIds.has(depot.id);
       const color = depot.type === 'wall' ? 0xe5bd76 : 0xf28b67;
       const group = new THREE.Group();
       group.position.set(depot.position.x, 0, depot.position.z);

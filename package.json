@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types --test src/game/*.test.ts src/input/*.test.ts src/view/*.test.ts tools/jev/*.test.ts tools/controlDefaultPreset.test.ts",
+    "test": "node --experimental-strip-types --test src/game/*.test.ts src/editor/*.test.ts src/maps/*.test.ts src/input/*.test.ts src/view/*.test.ts tools/jev/*.test.ts tools/controlDefaultPreset.test.ts",
     "check:jev": "tsc -p tsconfig.jev.json --noEmit",
     "jev:review": "node --experimental-strip-types tools/jev/cli.ts"
   },

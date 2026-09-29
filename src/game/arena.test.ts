@@ -104,6 +104,15 @@ test('arena resize preserves a customized contested lane and its power-up region
   assert.deepEqual(resized.powerupSpawnAreas, arena.powerupSpawnAreas);
 });
 
+test('authored walls reject hard overlaps even when rotated', () => {
+  const arena = cloneArena(DEFAULT_ARENA);
+  arena.walls = [{ id: 'first', type: 'stone', position: { x: -10, z: 3 }, width: 2.4, depth: 0.8, rotation: Math.PI / 4 }];
+  const overlapping = { id: 'second', type: 'wood' as const, position: { x: -10.25, z: 3.25 }, width: 2.25, depth: 0.5, rotation: 0 };
+  assert.equal(wallFitsArena(overlapping, arena), false);
+  arena.walls.push(overlapping);
+  assert.equal(validateArenaDefinition(arena), null);
+});
+
 test('slider minimum tracks the closest existing objects in two-unit increments', () => {
   const arena = cloneArena(DEFAULT_ARENA);
   const minimum = minimumArenaDimensions(arena);

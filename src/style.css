@@ -34,7 +34,7 @@ button.selected, button[aria-pressed="true"] { border-color: #e3b876; background
 .menu-actions button:hover { background: #35556a; }
 .menu-actions #fullscreen-button { border-color: #e1be7b; color: #ffe2a0; }
 .game-settings-panel { padding: 12px; margin: 0 0 16px; border: 1px solid #718ca0; border-radius: 8px; background: #14283a; }
-.game-settings-panel[hidden], .developer-confirm[hidden] { display: none; }
+.game-settings-panel[hidden], .developer-confirm[hidden], .map-name-dialog[hidden] { display: none; }
 .game-settings-panel .hint { margin: 7px 0 13px; font-size: 11px; }
 .game-settings-panel .control-setting { margin: 8px 0; }
 .game-settings-panel .tuning-group-start { border-top: 1px solid #516a7b; padding-top: 11px; }
@@ -43,6 +43,13 @@ button.selected, button[aria-pressed="true"] { border-color: #e3b876; background
 .developer-confirm-card h2 { margin: 0 0 10px; color: #ffe0a2; font-size: 22px; }
 .developer-confirm-card p { color: #e8eef1; font-size: 13px; line-height: 1.5; }
 .developer-confirm-card .editor-actions { margin-bottom: 0; }
+.map-name-dialog { position: absolute; z-index: 65; inset: 0; display: flex; align-items: center; justify-content: center; overflow-y: auto; padding: calc(var(--safe-top) + 12px) calc(var(--safe-right) + 12px) calc(var(--safe-bottom) + 12px) calc(var(--safe-left) + 12px); background: #06111bf0; touch-action: pan-y; }
+.map-name-card { width: min(420px, 100%); max-height: 100%; overflow-y: auto; padding: 20px; border: 2px solid #ebbc73; border-radius: 12px; background: #20394b; box-shadow: 0 16px 50px #000c; }
+.map-name-card h2 { margin: 0 0 14px; color: #ffe0a2; font-size: 22px; }
+.map-name-card label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 800; }
+.map-name-card input { display: block; width: 100%; min-height: 44px; padding: 8px 11px; border: 1px solid #a8bec9; border-radius: 6px; background: #0b1c2c; color: #fff; font: 16px system-ui, sans-serif; user-select: text; -webkit-user-select: text; touch-action: manipulation; }
+.map-name-card .editor-actions { margin-bottom: 0; }
+#map-name-error { color: #ffc0b7; font-size: 12px; }
 .display-help { display: flex; flex-direction: column; gap: 7px; padding: 13px; margin: 0 0 18px; border: 1px solid #d6b46e; border-radius: 8px; background: #3a3b35; }
 .display-help strong { color: #ffe1a0; font-size: 13px; }
 .display-help span { color: #f0e5ce; font-size: 12px; line-height: 1.5; }
@@ -62,7 +69,24 @@ h1 span { color: #ed6059; }
 .team-dot { width: 9px; height: 9px; border-radius: 50%; }
 .team-dot.red { background: #ef554f; }.team-dot.blue { background: #4e9df5; }
 #play-panel .hint { margin-top: 24px; }
-.editor-dock { position: absolute; z-index: 15; top: calc(var(--tab-height) + var(--safe-top) + 10px); left: calc(var(--safe-left) + 10px); width: 210px; max-height: calc(100% - var(--safe-top) - var(--safe-bottom) - var(--tab-height) - 20px); padding: 12px; border: 2px solid #d1b778; border-radius: 10px; background: #172a3aed; box-shadow: 0 8px 24px #000a; overflow-y: auto; }
+.editor-dock { position: absolute; z-index: 15; top: calc(var(--tab-height) + var(--safe-top) + 10px); left: calc(var(--safe-left) + 10px); width: min(264px, 34vw); max-height: calc(100% - var(--safe-top) - var(--safe-bottom) - var(--tab-height) - 20px); padding: 12px; border: 2px solid #d1b778; border-radius: 10px; background: #172a3aed; box-shadow: 0 8px 24px #000a; overflow-y: auto; overscroll-behavior: contain; }
+.editor-toolbar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 10px; }
+.editor-toolbar button, .editor-dock .editor-actions button { min-height: 38px; }
+.editor-toolbar button[aria-pressed="true"] { border-color: #f5d391; color: #ffe1a5; background: #4a4233; }
+.editor-section { border-top: 1px solid #5b7080; margin-top: 10px; padding-top: 8px; }
+.editor-section summary { color: #f1ce89; font-size: 10px; font-weight: 900; letter-spacing: .12em; cursor: pointer; min-height: 28px; touch-action: manipulation; }
+#done-edit { margin-top: 7px; min-height: 34px; }
+.editor-dpad { display: grid; grid-template-columns: repeat(3, 42px); grid-template-rows: repeat(3, 38px); justify-content: center; gap: 2px; margin: 8px auto; }
+.editor-dpad button { min-width: 42px; min-height: 38px; padding: 0; }
+#nudge-up { grid-column: 2; grid-row: 1; } #nudge-left { grid-column: 1; grid-row: 2; } #nudge-right { grid-column: 3; grid-row: 2; } #nudge-down { grid-column: 2; grid-row: 3; }
+#selection-summary { font-size: 11px; line-height: 1.4; color: #f3daa1; overflow-wrap: anywhere; }
+.box-rectangle { position: absolute; z-index: 11; border: 2px solid #f5d38b; background: #f6d68b35; pointer-events: none; }
+.box-rectangle[hidden] { display: none; }
+.map-picker { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 14px auto 8px; font-size: 11px; font-weight: 900; letter-spacing: .08em; }
+.map-picker select { max-width: min(260px, 55vw); padding: 8px; border: 1px solid #d6bb7c; border-radius: 6px; background: #1c3345; color: #fff; font: inherit; }
+#ready-customize { display: block; margin: 0 auto 10px; min-height: 34px; font-size: 11px; }
+.remove-local-map { display: block; margin: 0 auto 8px; padding: 6px 10px; border-color: #a16b65; color: #ffd0c8; font-size: 11px; }
+.remove-local-map[hidden] { display: none; }
 .controls-dock { left: 50%; transform: translateX(-50%); width: min(270px, 40vw); }
 .control-setting { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; margin: 12px 0; color: #e6eff5; font-size: 11px; font-weight: 800; }
 .control-setting output { color: #f6d69b; }
@@ -76,6 +100,7 @@ h1 span { color: #ed6059; }
 .editor-heading strong { display: block; color: #f1ce89; font-size: 12px; letter-spacing: .12em; }
 .editor-heading span { display: block; margin-top: 5px; color: #b9c7d0; font-size: 10px; overflow-wrap: anywhere; }
 .editor-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; margin: 11px 0; }
+.editor-actions[hidden] { display: none; }
 .editor-actions button { font-size: 11px; padding: 7px 3px; }
 .editor-options { margin: 12px 0; padding-top: 10px; border-top: 1px solid #5b7080; }
 .editor-options[hidden], .editor-wide-button[hidden] { display: none; }

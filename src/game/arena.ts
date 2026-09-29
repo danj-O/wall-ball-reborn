@@ -1,4 +1,4 @@
-import savedArenaDefault from './arenaDefaults.json' with { type: 'json' };
+import classicMap from '../maps/classic.json' with { type: 'json' };
 
 export type Team = 'red' | 'blue';
 export type Vec2 = { x: number; z: number };
@@ -76,7 +76,7 @@ export const BASE_ARENA: ArenaDefinition = {
 };
 
 // A saved developer preset becomes the new reset/new-device arena.
-export const DEFAULT_ARENA: ArenaDefinition = validateArenaDefinition(savedArenaDefault) ?? BASE_ARENA;
+export const DEFAULT_ARENA: ArenaDefinition = validateArenaDefinition(classicMap.arena) ?? BASE_ARENA;
 
 export function cloneArena(arena: ArenaDefinition): ArenaDefinition { return structuredClone(arena); }
 export function nextArenaObjectId(arena: ArenaDefinition, kind: 'wall' | 'depot' | 'power-region'): string {
@@ -150,6 +150,18 @@ export function circleTouchesWall(point: Vec2, radius: number, wall: WallDefinit
   const z = Math.max(-wall.depth / 2, Math.min(wall.depth / 2, p.z));
   return (p.x - x) ** 2 + (p.z - z) ** 2 < radius ** 2;
 }
+export function wallsOverlap(a: WallDefinition, b: WallDefinition): boolean {
+  const axes = [a.rotation, a.rotation + Math.PI / 2, b.rotation, b.rotation + Math.PI / 2];
+  const deltaX = b.position.x - a.position.x, deltaZ = b.position.z - a.position.z;
+  return axes.every(angle => {
+    const axisX = Math.cos(angle), axisZ = -Math.sin(angle);
+    const projection = Math.abs(deltaX * axisX + deltaZ * axisZ);
+    const radius = (wall: WallDefinition) =>
+      (Math.abs(Math.cos(wall.rotation) * axisX - Math.sin(wall.rotation) * axisZ) * wall.width +
+        Math.abs(Math.sin(wall.rotation) * axisX + Math.cos(wall.rotation) * axisZ) * wall.depth) / 2;
+    return projection < radius(a) + radius(b) - 1e-5;
+  });
+}
 export function wallFitsArena(wall: WallDefinition, arena: ArenaDefinition): boolean {
   const c = Math.cos(wall.rotation);
   const s = Math.sin(wall.rotation);
@@ -159,7 +171,8 @@ export function wallFitsArena(wall: WallDefinition, arena: ArenaDefinition): boo
   if (wall.position.x - halfX < b.minX + 0.2 || wall.position.x + halfX > b.maxX - 0.2 ||
       wall.position.z - halfZ < b.minZ + 0.2 || wall.position.z + halfZ > b.maxZ - 0.2) return false;
   return !Object.values(arena.playerSpawns).some(point => circleTouchesWall(point, 0.85, wall)) &&
-    !Object.values(arena.flagPositions).some(point => circleTouchesWall(point, 1.3, wall));
+    !Object.values(arena.flagPositions).some(point => circleTouchesWall(point, 1.3, wall)) &&
+    !arena.walls.some(other => other.id !== wall.id && wallsOverlap(wall, other));
 }
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -225,7 +238,21 @@ export function validateArenaDefinition(value: unknown, report?: (reason: string
       !validBounds(region.bounds) || !powerUpRegionFitsArena(region, arena)) return invalid(`Power-up region ${region.id} no longer fits.`);
     ids.add(region.id);
   }
-  return cloneArena(arena);
+  return {
+    bounds: { ...arena.bounds },
+    playerSpawns: { red: { ...arena.playerSpawns.red }, blue: { ...arena.playerSpawns.blue } },
+    flagPositions: { red: { ...arena.flagPositions.red }, blue: { ...arena.flagPositions.blue } },
+    territories: {
+      red: arena.territories.red.map(region => ({ id: region.id, bounds: { ...region.bounds } })),
+      contested: arena.territories.contested.map(region => ({ id: region.id, bounds: { ...region.bounds } })),
+      blue: arena.territories.blue.map(region => ({ id: region.id, bounds: { ...region.bounds } })),
+    },
+    powerupSpawnAreas: arena.powerupSpawnAreas.map(region => ({ id: region.id, bounds: { ...region.bounds } })),
+    walls: arena.walls.map(wall => ({ id: wall.id, type: wall.type, position: { ...wall.position },
+      width: wall.width, depth: wall.depth, rotation: wall.rotation })),
+    depots: arena.depots.map(depot => ({ id: depot.id, type: depot.type, position: { ...depot.position },
+      radius: depot.radius, capacity: depot.capacity })),
+  };
 }
 
 export function resizedArena(arena: ArenaDefinition, width: number, length: number,

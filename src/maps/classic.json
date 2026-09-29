@@ -1,0 +1,675 @@
+{
+  "id": "classic",
+  "name": "Classic",
+  "schemaVersion": 1,
+  "arena": {
+    "bounds": {
+      "minX": -25,
+      "maxX": 25,
+      "minZ": -16,
+      "maxZ": 16
+    },
+    "playerSpawns": {
+      "red": {
+        "x": -21.5,
+        "z": 0
+      },
+      "blue": {
+        "x": 21.5,
+        "z": 0
+      }
+    },
+    "flagPositions": {
+      "red": {
+        "x": -23.2,
+        "z": 0
+      },
+      "blue": {
+        "x": 23.2,
+        "z": 0
+      }
+    },
+    "territories": {
+      "red": [
+        {
+          "id": "red-territory",
+          "bounds": {
+            "minX": -25,
+            "maxX": -3.5,
+            "minZ": -16,
+            "maxZ": 16
+          }
+        }
+      ],
+      "contested": [
+        {
+          "id": "contested-territory",
+          "bounds": {
+            "minX": -3.5,
+            "maxX": 3.5,
+            "minZ": -16,
+            "maxZ": 16
+          }
+        }
+      ],
+      "blue": [
+        {
+          "id": "blue-territory",
+          "bounds": {
+            "minX": 3.5,
+            "maxX": 25,
+            "minZ": -16,
+            "maxZ": 16
+          }
+        }
+      ]
+    },
+    "powerupSpawnAreas": [
+      {
+        "id": "central-opportunities",
+        "bounds": {
+          "minX": -2.5,
+          "maxX": 2.5,
+          "minZ": -11,
+          "maxZ": 11
+        }
+      }
+    ],
+    "walls": [
+      {
+        "id": "red-stone-gate-1",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": -14.5
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-stone-gate-2",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": -12
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-stone-gate-3",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": -9.25
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-stone-gate-4",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": -6.5
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-stone-gate-5",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": -4
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-stone-gate-6",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": -1.25
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-stone-gate-7",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": 1.25
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-stone-gate-8",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": 4
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-stone-gate-9",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": 6.5
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-stone-gate-10",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": 9.25
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-wood-gate-1",
+        "type": "wood",
+        "position": {
+          "x": -3.35,
+          "z": -14.5
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-wood-gate-2",
+        "type": "wood",
+        "position": {
+          "x": -3.35,
+          "z": -12.25
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-wood-gate-3",
+        "type": "wood",
+        "position": {
+          "x": -3.35,
+          "z": -9.75
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-wood-gate-4",
+        "type": "wood",
+        "position": {
+          "x": -3.35,
+          "z": -7.25
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-wood-gate-5",
+        "type": "wood",
+        "position": {
+          "x": -3.35,
+          "z": -4.75
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-wood-gate-6",
+        "type": "wood",
+        "position": {
+          "x": -3.35,
+          "z": -2.5
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-wood-gate-7",
+        "type": "wood",
+        "position": {
+          "x": -3.35,
+          "z": 0
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-wood-gate-8",
+        "type": "wood",
+        "position": {
+          "x": -3.35,
+          "z": 2.5
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-wood-gate-9",
+        "type": "wood",
+        "position": {
+          "x": -3.35,
+          "z": 4.75
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-wood-gate-10",
+        "type": "wood",
+        "position": {
+          "x": -3.35,
+          "z": 7.25
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "red-wood-gate-11",
+        "type": "wood",
+        "position": {
+          "x": -3.35,
+          "z": 9.75
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "center",
+        "type": "stone",
+        "position": {
+          "x": 0,
+          "z": 0
+        },
+        "width": 0.8,
+        "depth": 3.2,
+        "rotation": 0
+      },
+      {
+        "id": "wall-custom-1",
+        "type": "wood",
+        "position": {
+          "x": -20.25,
+          "z": 0
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-2",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": 12
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-3",
+        "type": "stone",
+        "position": {
+          "x": -7.25,
+          "z": 14.5
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-5",
+        "type": "wood",
+        "position": {
+          "x": -3.3499999999999996,
+          "z": 12.25
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-6",
+        "type": "wood",
+        "position": {
+          "x": -3.3499999999999996,
+          "z": 14.5
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-4",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": -14.5
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-7",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": -12
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-8",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": -9.25
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-9",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": -6.5
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-10",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": -4
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-11",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": -1.25
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-12",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": 1.25
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-13",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": 4
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-14",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": 6.5
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-15",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": 9.25
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-16",
+        "type": "wood",
+        "position": {
+          "x": 3.35,
+          "z": -14.5
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-17",
+        "type": "wood",
+        "position": {
+          "x": 3.35,
+          "z": -12.25
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-18",
+        "type": "wood",
+        "position": {
+          "x": 3.35,
+          "z": -9.75
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-19",
+        "type": "wood",
+        "position": {
+          "x": 3.35,
+          "z": -7.25
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-20",
+        "type": "wood",
+        "position": {
+          "x": 3.35,
+          "z": -4.75
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-21",
+        "type": "wood",
+        "position": {
+          "x": 3.35,
+          "z": -2.5
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-22",
+        "type": "wood",
+        "position": {
+          "x": 3.35,
+          "z": 0
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-23",
+        "type": "wood",
+        "position": {
+          "x": 3.35,
+          "z": 2.5
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-24",
+        "type": "wood",
+        "position": {
+          "x": 3.35,
+          "z": 4.75
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-25",
+        "type": "wood",
+        "position": {
+          "x": 3.35,
+          "z": 7.25
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-26",
+        "type": "wood",
+        "position": {
+          "x": 3.35,
+          "z": 9.75
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-27",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": 12
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-28",
+        "type": "stone",
+        "position": {
+          "x": 7.25,
+          "z": 14.5
+        },
+        "width": 2.4,
+        "depth": 0.8,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-29",
+        "type": "wood",
+        "position": {
+          "x": 3.3499999999999996,
+          "z": 12.25
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      },
+      {
+        "id": "wall-custom-30",
+        "type": "wood",
+        "position": {
+          "x": 3.3499999999999996,
+          "z": 14.5
+        },
+        "width": 2.25,
+        "depth": 0.5,
+        "rotation": 1.5707963267948966
+      }
+    ],
+    "depots": [
+      {
+        "id": "wall-depot",
+        "type": "wall",
+        "position": {
+          "x": 0,
+          "z": -13.5
+        },
+        "radius": 1.7,
+        "capacity": 8
+      },
+      {
+        "id": "bomb-depot",
+        "type": "bomb",
+        "position": {
+          "x": 0,
+          "z": 13.45
+        },
+        "radius": 1.7,
+        "capacity": 8
+      }
+    ]
+  }
+}
