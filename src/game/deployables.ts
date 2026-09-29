@@ -3,8 +3,8 @@ import type { PlayerState } from './GameMode.ts';
 import type { BombTrajectory } from './trajectory.ts';
 
 export type ResourceId = 'wall' | 'bomb';
-export type DeployableId = ResourceId | 'mega-bomb';
-export type BombType = 'bomb' | 'mega-bomb';
+export type DeployableId = ResourceId | BombType;
+export type BombType = keyof typeof BOMB_TYPES;
 export type PreviewShape =
   | { kind: 'box'; width: number; depth: number; height: number }
   | { kind: 'sphere'; radius: number };
@@ -39,7 +39,7 @@ export type PlacementContext = {
   bombs: readonly RuntimeBomb[];
   players: Record<Team, PlayerState>;
 };
-export type TickContext = { state: DeploymentState; dt: number };
+export type TickContext = { state: DeploymentState; dt: number; onWallDestroyed?: (owner: Team, wall: RuntimeWall) => void };
 
 export interface DeployableDefinition {
   readonly id: DeployableId;
@@ -125,7 +125,7 @@ function bombPlacementValid(placement: Placement, context: PlacementContext, rad
   return true;
 }
 
-function tickBomb(entity: RuntimeEntity, { state, dt }: TickContext): boolean {
+function tickBomb(entity: RuntimeEntity, { state, dt, onWallDestroyed }: TickContext): boolean {
   if (entity.kind !== 'bomb') return true;
   if (entity.phase === 'flying') return true;
   entity.fuseRemaining -= dt;
@@ -136,7 +136,10 @@ function tickBomb(entity: RuntimeEntity, { state, dt }: TickContext): boolean {
   });
   // A spatial event: nearest point on each wall footprint determines the hit.
   for (const wall of state.walls) {
-    if (circleTouchesWall(entity.position, entity.blastRadius, wall)) wall.hp -= entity.wallDamage;
+    if (circleTouchesWall(entity.position, entity.blastRadius, wall)) {
+      wall.hp -= entity.wallDamage;
+      if (wall.hp <= 0) onWallDestroyed?.(entity.owner, wall);
+    }
   }
   state.walls = state.walls.filter(wall => wall.hp > 0);
   return false;
@@ -199,8 +202,8 @@ export function createDeploymentState(arena: ArenaDefinition): DeploymentState {
   };
 }
 
-export function tickDeploymentState(state: DeploymentState, dt: number): void {
+export function tickDeploymentState(state: DeploymentState, dt: number, onWallDestroyed?: (owner: Team, wall: RuntimeWall) => void): void {
   for (const explosion of state.explosions) explosion.remaining -= dt;
   state.explosions = state.explosions.filter(explosion => explosion.remaining > 0);
-  state.bombs = state.bombs.filter(bomb => DEPLOYABLES[bomb.definitionId].tick?.(bomb, { state, dt }) !== false);
+  state.bombs = state.bombs.filter(bomb => DEPLOYABLES[bomb.definitionId].tick?.(bomb, { state, dt, onWallDestroyed }) !== false);
 }

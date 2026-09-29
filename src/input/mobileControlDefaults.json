@@ -1,0 +1,76 @@
+{
+  "positions": {
+    "red-move": {
+      "x": 0.11186079545454546,
+      "y": 0.17164179104477612
+    },
+    "red-wall": {
+      "x": 0.15163352272727273,
+      "y": 0.8256929637526652
+    },
+    "red-bomb": {
+      "x": 0.2556818181818182,
+      "y": 0.8997867803837953
+    },
+    "red-ability-1": {
+      "x": 0.07457386363636363,
+      "y": 0.6977611940298507
+    },
+    "red-ability-2": {
+      "x": 0.12059659090909092,
+      "y": 0.8667377398720683
+    },
+    "blue-move": {
+      "x": 0.9524147727272727,
+      "y": 0.9104477611940298
+    },
+    "blue-wall": {
+      "x": 0.8625710227272727,
+      "y": 0.18230277185501065
+    },
+    "blue-bomb": {
+      "x": 0.7432528409090909,
+      "y": 0.10554371002132196
+    },
+    "blue-ability-1": {
+      "x": 0.9307528409090909,
+      "y": 0.3272921108742004
+    },
+    "blue-ability-2": {
+      "x": 0.8794034090909091,
+      "y": 0.13326226012793177
+    }
+  },
+  "sizes": {
+    "red-move": 92,
+    "red-wall": 128,
+    "red-bomb": 126,
+    "red-ability-1": 94,
+    "red-ability-2": 62,
+    "blue-move": 92,
+    "blue-wall": 126,
+    "blue-bomb": 126,
+    "blue-ability-1": 94,
+    "blue-ability-2": 62
+  },
+  "floatRadii": {
+    "red-move": 70,
+    "red-wall": 68,
+    "red-bomb": 70,
+    "red-ability-1": 48,
+    "red-ability-2": 48,
+    "blue-move": 70,
+    "blue-wall": 76,
+    "blue-bomb": 76,
+    "blue-ability-1": 48,
+    "blue-ability-2": 48
+  },
+  "moveAreas": {
+    "red-move": 480,
+    "blue-move": 480
+  },
+  "moveInsets": {
+    "red-move": 29,
+    "blue-move": 29
+  }
+}

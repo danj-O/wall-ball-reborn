@@ -3,6 +3,7 @@ import { WALL_HEIGHT, type ArenaDefinition, type Team, type Vec2 } from './arena
 import type { GameState } from './GameMode.ts';
 import { type DeploymentState, type RuntimeBomb, type RuntimeWall } from './deployables.ts';
 import { BOMB_FLIGHT, bombLaunch } from './trajectory.ts';
+import { BASE_GAME_SETTINGS, type ProjectileTuning } from './gameSettingsSchema.ts';
 
 /** The simulation owns rigid bodies. Three.js only consumes the plain positions copied out here. */
 export class PhysicsWorld {
@@ -15,7 +16,7 @@ export class PhysicsWorld {
   private readonly playerMaterial = new Material('player');
   private readonly bombMaterial = new Material('bomb');
 
-  constructor(arena: ArenaDefinition, state: GameState, deployments: DeploymentState, playerRadius: number) {
+  constructor(arena: ArenaDefinition, state: GameState, deployments: DeploymentState, playerRadius: number, playerMass = 4) {
     this.world.allowSleep = true;
     this.world.addContactMaterial(new ContactMaterial(this.bombMaterial, this.solid, { friction: 0.55, restitution: 0.42 }));
     this.world.addContactMaterial(new ContactMaterial(this.bombMaterial, this.bombMaterial, { friction: 0.3, restitution: 0.62 }));
@@ -39,8 +40,8 @@ export class PhysicsWorld {
     }
 
     this.players = {
-      red: this.makePlayer(state.players.red.position, playerRadius),
-      blue: this.makePlayer(state.players.blue.position, playerRadius),
+      red: this.makePlayer(state.players.red.position, playerRadius, playerMass),
+      blue: this.makePlayer(state.players.blue.position, playerRadius, playerMass),
     };
     this.lastPlayerPosition = {
       red: { ...state.players.red.position }, blue: { ...state.players.blue.position },
@@ -48,8 +49,8 @@ export class PhysicsWorld {
     this.syncWalls(deployments.walls);
   }
 
-  private makePlayer(position: Vec2, radius: number): Body {
-    const body = new Body({ mass: 4, material: this.playerMaterial, shape: new Sphere(radius), position: new Vec3(position.x, radius, position.z), linearDamping: 0, fixedRotation: true });
+  private makePlayer(position: Vec2, radius: number, mass: number): Body {
+    const body = new Body({ mass, material: this.playerMaterial, shape: new Sphere(radius), position: new Vec3(position.x, radius, position.z), linearDamping: 0, fixedRotation: true });
     body.linearFactor.set(1, 0, 1);
     this.world.addBody(body);
     return body;
@@ -70,9 +71,9 @@ export class PhysicsWorld {
     }
   }
 
-  addBomb(bomb: RuntimeBomb): void {
-    const launch = bombLaunch(bomb.origin, bomb.target, bomb.physicalRadius);
-    const body = new Body({ mass: bomb.definitionId === 'mega-bomb' ? 1.7 : 1, material: this.bombMaterial, shape: new Sphere(bomb.physicalRadius),
+  addBomb(bomb: RuntimeBomb, tuning: Pick<ProjectileTuning, 'throwForce' | 'lob' | 'mass'> = BASE_GAME_SETTINGS.projectiles[bomb.definitionId]): void {
+    const launch = bombLaunch(bomb.origin, bomb.target, bomb.physicalRadius, tuning);
+    const body = new Body({ mass: tuning.mass, material: this.bombMaterial, shape: new Sphere(bomb.physicalRadius),
       position: new Vec3(launch.position.x, launch.position.y, launch.position.z),
       linearDamping: BOMB_FLIGHT.linearDamping, angularDamping: 0.35, sleepSpeedLimit: 0.08, sleepTimeLimit: 0.6,
     });
@@ -90,6 +91,13 @@ export class PhysicsWorld {
 
   getBombBody(id: string): Body | undefined { return this.bombs.get(id); }
   getPlayerBody(team: Team): Body { return this.players[team]; }
+  setPlayerMass(mass: number): void {
+    for (const body of Object.values(this.players)) {
+      body.mass = mass;
+      body.updateMassProperties();
+      body.wakeUp();
+    }
+  }
   capPlayerSpeed(team: Team, maximum: number): void {
     const velocity = this.players[team].velocity;
     const horizontal = Math.hypot(velocity.x, velocity.z);

@@ -10,6 +10,7 @@ function throwPastWall(wallX: number, rotation = 0) {
   const arena = cloneArena(DEFAULT_ARENA);
   arena.walls = [{ id: 'test-wall', type: 'stone', position: { x: wallX, z: 0 }, width: 0.8, depth: 3, rotation }];
   const game = new Game(arena, new CaptureTheFlag());
+  game.start();
   game.state.players.red.position = { x: -3, z: 0 };
   game.update(1 / 120, idle);
   game.beginDeployAim('red', 'bomb');

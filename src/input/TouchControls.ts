@@ -31,6 +31,19 @@ export function orientPadVector(team: Team, dx: number, dy: number): { x: number
   return rotateVector(dx, dy, -CONTROL_VISUAL_ROTATION[team]);
 }
 
+export function movementFromTouch(
+  team: Team, origin: { x: number; y: number }, current: { x: number; y: number },
+  travelRadius: number, toWorld: (dx: number, dy: number) => Vec2,
+): Vec2 {
+  const dx = current.x - origin.x;
+  const dy = current.y - origin.y;
+  const length = Math.hypot(dx, dy);
+  const input = orientScreenVector(team, dx, dy);
+  const direction = toWorld(input.x, input.y);
+  const strength = Math.min(1, length / travelRadius);
+  return { x: direction.x * strength, z: direction.z * strength };
+}
+
 export class PointerRegistry<T> {
   private readonly sessions = new Map<number, T>();
   claim(pointerId: number, value: T): boolean {
@@ -244,11 +257,15 @@ export class TouchControls {
     for (const zone of this.root.querySelectorAll<HTMLElement>('.move-zone')) {
       const id = zone.dataset.controlId as ControlId;
       const center = this.visiblePosition(this.layout.positions[id], this.layout.sizes[id], width, height);
-      const rect = movementZoneRect(center, this.layout.sizes[id], this.layout.floatRadii[id], width, height);
+      const moveId = id as 'red-move' | 'blue-move';
+      const style = getComputedStyle(this.root);
+      const safeInset = Math.max(parseFloat(style.paddingLeft) || 0, parseFloat(style.paddingRight) || 0,
+        parseFloat(style.paddingTop) || 0, parseFloat(style.paddingBottom) || 0);
+      const rect = movementZoneRect(center, this.layout.moveAreas[moveId], this.layout.moveInsets[moveId] + safeInset, width, height);
       zone.style.left = `${rect.left}px`;
       zone.style.top = `${rect.top}px`;
-      zone.style.width = `${rect.side}px`;
-      zone.style.height = `${rect.side}px`;
+      zone.style.width = `${rect.width}px`;
+      zone.style.height = `${rect.height}px`;
     }
   }
 
@@ -359,11 +376,15 @@ export class TouchControls {
     const clamped = Math.min(radius, length);
     const visual = orientPadVector(session.team, dx, dy);
     session.knob.style.transform = `translate(${visual.x / (length || 1) * clamped}px, ${visual.y / (length || 1) * clamped}px)`;
+    if (session.kind === 'move') {
+      this.callbacks.onMove(session.team,
+        movementFromTouch(session.team, session.origin, { x: event.clientX, y: event.clientY }, radius, this.callbacks.toWorld));
+      return;
+    }
     const input = orientScreenVector(session.team, dx, dy);
     const direction = this.callbacks.toWorld(input.x, input.y);
     const strength = Math.min(1, length / radius);
-    if (session.kind === 'move') this.callbacks.onMove(session.team, { x: direction.x * strength, z: direction.z * strength });
-    else this.callbacks.onAim(session.team, session.itemId!, direction, strength);
+    this.callbacks.onAim(session.team, session.itemId!, direction, strength);
   }
 
   private end(pointerId: number, cancelled: boolean): void {

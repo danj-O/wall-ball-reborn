@@ -10,6 +10,7 @@ const idle = { red: { x: 0, z: 0 }, blue: { x: 0, z: 0 } };
 test('enemy flag pickup, visible carrier state, and capture at own base', () => {
   const arena = cloneArena(DEFAULT_ARENA);
   const game = new Game(arena, new CaptureTheFlag());
+  game.start();
   game.state.players.red.position = { ...arena.flagPositions.blue };
   game.update(1 / 60, idle);
   assert.equal(game.state.players.red.carrying, 'blue');
@@ -26,6 +27,7 @@ test('enemy flag pickup, visible carrier state, and capture at own base', () => 
 test('touching a carrier returns the enemy flag to its base', () => {
   const arena = cloneArena(DEFAULT_ARENA);
   const game = new Game(arena, new CaptureTheFlag());
+  game.start();
   game.state.players.red.position = { ...arena.flagPositions.blue };
   game.update(1 / 60, idle);
   game.state.players.blue.position = { ...game.state.players.red.position };
@@ -39,6 +41,7 @@ test('configured walls and bounds block movement while facing follows input', ()
   const arena = cloneArena(DEFAULT_ARENA);
   arena.walls = [{ id: 'test', type: 'stone', position: { x: -12, z: 0 }, width: 0.8, depth: 3, rotation: 0 }];
   const game = new Game(arena, new CaptureTheFlag());
+  game.start();
   for (let i = 0; i < 60; i++) game.update(1 / 60, { ...idle, red: { x: 1, z: 0 } });
   assert.ok(game.state.players.red.position.x < -12.7);
   assert.equal(game.state.players.red.facing, Math.PI / 2);
@@ -48,6 +51,7 @@ test('configured walls and bounds block movement while facing follows input', ()
 
 test('both default wall layers must be removed before a player can enter contested ground', () => {
   const game = new Game(cloneArena(DEFAULT_ARENA), new CaptureTheFlag());
+  game.start();
   assert.equal(game.deployments.inventory.red.wall, 8);
   assert.equal(game.deployments.inventory.blue.wall, 8);
   game.state.players.red.position = { x: -6.5, z: -0.6 };
@@ -68,6 +72,7 @@ test('movement into a diagonal wall slides along its face without crossing it', 
   const arena = cloneArena(DEFAULT_ARENA);
   arena.walls = [];
   const game = new Game(arena, new CaptureTheFlag());
+  game.start();
   const wall = DEPLOYABLES.wall.deploy('diagonal', 'red',
     { position: { x: 0, z: 0 }, rotation: Math.PI / 4 }, { x: -2, z: 0 }) as RuntimeWall;
   wall.width = 6;
@@ -86,6 +91,7 @@ test('players accelerate to a faster run, brake smoothly, and reset motion', () 
   const arena = cloneArena(DEFAULT_ARENA);
   arena.walls = [];
   const game = new Game(arena, new CaptureTheFlag());
+  game.start();
   const start = game.state.players.red.position.x;
   game.update(1 / 60, { ...idle, red: { x: 1, z: 0 } });
   const firstStep = game.state.players.red.position.x - start;

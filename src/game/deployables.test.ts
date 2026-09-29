@@ -9,7 +9,7 @@ import {
 } from './deployables.ts';
 
 const idle = { red: { x: 0, z: 0 }, blue: { x: 0, z: 0 } };
-const makeGame = () => new Game(cloneArena(DEFAULT_ARENA), new CaptureTheFlag());
+const makeGame = () => { const game = new Game(cloneArena(DEFAULT_ARENA), new CaptureTheFlag()); game.start(); return game; };
 
 test('successful wall and bomb deployment spend only their own inventory', () => {
   const game = makeGame();
@@ -74,6 +74,7 @@ test('bomb rigid bodies collide with floor, walls, bombs, and players', () => {
   const arena = cloneArena(DEFAULT_ARENA);
   arena.walls = [{ id: 'barrier', type: 'stone', position: { x: 0, z: 0 }, width: 0.8, depth: 5, rotation: 0 }];
   const game = new Game(arena, new CaptureTheFlag());
+  game.start();
   const makeBomb = (id: string, x: number) => {
     const bomb = DEPLOYABLES.bomb.deploy(id, 'red', { position: { x: 0, z: 0 }, rotation: 0 }, { x, z: 0 }) as RuntimeBomb;
     game.deployments.bombs.push(bomb);
@@ -99,6 +100,7 @@ test('bomb impact transfers momentum to a player', () => {
   const arena = cloneArena(DEFAULT_ARENA);
   arena.walls = [];
   const game = new Game(arena, new CaptureTheFlag());
+  game.start();
   game.state.players.red.position = { x: 0, z: 0 };
   game.update(1 / 60, idle);
   const bomb = DEPLOYABLES.bomb.deploy('player-hit', 'blue', { position: { x: 0, z: 0 }, rotation: 0 }, { x: -3, z: 0 }) as RuntimeBomb;
@@ -116,6 +118,7 @@ test('gravity lands bombs on top of walls and they can fall off', () => {
   const arena = cloneArena(DEFAULT_ARENA);
   arena.walls = [{ id: 'platform', type: 'stone', position: { x: 0, z: 0 }, width: 2, depth: 2, rotation: 0 }];
   const game = new Game(arena, new CaptureTheFlag());
+  game.start();
   const bomb = DEPLOYABLES.bomb.deploy('top', 'red', { position: { x: 0, z: 0 }, rotation: 0 }, { x: -3, z: 0 }) as RuntimeBomb;
   game.deployments.bombs.push(bomb);
   game.physics.addBomb(bomb);

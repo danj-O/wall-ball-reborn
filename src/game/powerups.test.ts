@@ -7,7 +7,7 @@ import { Game } from './Game.ts';
 import { attemptPowerUpSpawn, collectPowerUp, createPowerUpState, POWER_UP_CONFIG, powerUpSpawnRejection, POWER_UPS, tickPowerUps, type PowerUpId, type PowerUpPickup } from './powerups.ts';
 
 const idle = { red: { x: 0, z: 0 }, blue: { x: 0, z: 0 } };
-const makeGame = () => new Game(cloneArena(DEFAULT_ARENA), new CaptureTheFlag(), () => 0.5);
+const makeGame = () => { const game = new Game(cloneArena(DEFAULT_ARENA), new CaptureTheFlag(), () => 0.5); game.start(); return game; };
 function addPickup(game: Game, id: PowerUpId, position = game.state.players.red.position): PowerUpPickup {
   const pickup = { id: `test-${id}-${game.powerUps.sequence++}`, definitionId: id, position: { ...position }, remaining: POWER_UPS[id].lifetime, age: 0 };
   game.powerUps.active.push(pickup);

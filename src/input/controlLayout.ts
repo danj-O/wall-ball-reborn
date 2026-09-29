@@ -1,18 +1,12 @@
-export type AbilitySlot = 'ability-1' | 'ability-2';
-export type ControlId = `${'red' | 'blue'}-${'move' | 'wall' | 'bomb' | AbilitySlot}`;
-export type NormalizedPoint = { x: number; y: number };
-export type ControlLayout = {
-  positions: Record<ControlId, NormalizedPoint>;
-  sizes: Record<ControlId, number>;
-  floatRadii: Record<ControlId, number>;
-};
-
-export const CONTROL_IDS: readonly ControlId[] = [
-  'red-move', 'red-wall', 'red-bomb', 'red-ability-1', 'red-ability-2',
-  'blue-move', 'blue-wall', 'blue-bomb', 'blue-ability-1', 'blue-ability-2',
-];
-export const CONTROL_SIZE_RANGE = { min: 56, max: 220 } as const;
-export const FLOAT_RADIUS_RANGE = { min: 28, max: 160 } as const;
+import mobileControlDefaults from './mobileControlDefaults.json' with { type: 'json' };
+import {
+  CONTROL_IDS, CONTROL_SIZE_RANGE, FLOAT_RADIUS_RANGE, MOVE_AREA_RANGE, MOVE_INSET_RANGE,
+  type ControlLayout, type NormalizedPoint,
+} from './controlSchema.ts';
+export {
+  CONTROL_IDS, CONTROL_SIZE_RANGE, FLOAT_RADIUS_RANGE, MOVE_AREA_RANGE, MOVE_INSET_RANGE,
+  type AbilitySlot, type ControlId, type ControlLayout, type NormalizedPoint,
+} from './controlSchema.ts';
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 export function clampControlPosition(point: NormalizedPoint, padSize: number, width: number, height: number): NormalizedPoint {
@@ -21,7 +15,7 @@ export function clampControlPosition(point: NormalizedPoint, padSize: number, wi
   return { x: clamp(point.x, insetX, 1 - insetX), y: clamp(point.y, insetY, 1 - insetY) };
 }
 
-export function defaultControlLayout(width: number, height: number): ControlLayout {
+function generatedControlLayout(width: number, height: number): ControlLayout {
   const moveSize = 110;
   const actionSize = 78;
   const moveInset = moveSize / 2 + 12;
@@ -29,6 +23,8 @@ export function defaultControlLayout(width: number, height: number): ControlLayo
   const gap = actionSize + 10;
   const point = (x: number, y: number, size: number) => clampControlPosition({ x: x / width, y: y / height }, size, width, height);
   return {
+    moveAreas: { 'red-move': 320, 'blue-move': 320 },
+    moveInsets: { 'red-move': 6, 'blue-move': 6 },
     sizes: { 'red-move': moveSize, 'red-wall': actionSize, 'red-bomb': actionSize,
       'red-ability-1': 62, 'red-ability-2': 62,
       'blue-move': moveSize, 'blue-wall': actionSize, 'blue-bomb': actionSize,
@@ -52,14 +48,23 @@ export function defaultControlLayout(width: number, height: number): ControlLayo
   };
 }
 
+export function defaultControlLayout(width: number, height: number): ControlLayout {
+  return normalizeAgainst(mobileControlDefaults, generatedControlLayout(width, height));
+}
+
 export function normalizeControlLayout(saved: unknown, width: number, height: number): ControlLayout {
-  const fallback = defaultControlLayout(width, height);
+  return normalizeAgainst(saved, defaultControlLayout(width, height));
+}
+
+function normalizeAgainst(saved: unknown, fallback: ControlLayout): ControlLayout {
   if (!saved || typeof saved !== 'object') return fallback;
   const data = saved as Partial<ControlLayout> & { padSize?: number; floatRadius?: number };
   const legacySize = Number.isFinite(data.padSize) ? Number(data.padSize) : undefined;
   const legacyRadius = Number.isFinite(data.floatRadius) ? Number(data.floatRadius) : undefined;
   const sizes = { ...fallback.sizes };
   const floatRadii = { ...fallback.floatRadii };
+  const moveAreas = { ...fallback.moveAreas };
+  const moveInsets = { ...fallback.moveInsets };
   const positions = { ...fallback.positions };
   for (const id of CONTROL_IDS) {
     sizes[id] = clamp(Number.isFinite(data.sizes?.[id]) ? Number(data.sizes?.[id]) : legacySize ?? sizes[id],
@@ -69,14 +74,20 @@ export function normalizeControlLayout(saved: unknown, width: number, height: nu
     const p = data.positions?.[id];
     if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) positions[id] = { x: clamp(p.x, 0, 1), y: clamp(p.y, 0, 1) };
   }
-  return { positions, sizes, floatRadii };
+  for (const id of ['red-move', 'blue-move'] as const) {
+    moveAreas[id] = clamp(Number.isFinite(data.moveAreas?.[id]) ? Number(data.moveAreas?.[id]) : moveAreas[id], MOVE_AREA_RANGE.min, MOVE_AREA_RANGE.max);
+    moveInsets[id] = clamp(Number.isFinite(data.moveInsets?.[id]) ? Number(data.moveInsets?.[id]) : moveInsets[id], MOVE_INSET_RANGE.min, MOVE_INSET_RANGE.max);
+  }
+  return { positions, sizes, floatRadii, moveAreas, moveInsets };
 }
 
-export function movementZoneRect(point: NormalizedPoint, size: number, floatRadius: number, width: number, height: number) {
-  const side = Math.min(Math.max(180, size * 1.8, floatRadius * 2.5), width * 0.45, height * 0.48);
+export function movementZoneRect(point: NormalizedPoint, areaSize: number, inset: number, width: number, height: number) {
+  const areaWidth = Math.min(areaSize, width * 0.45);
+  const areaHeight = Math.min(areaSize * 0.7, height * 0.48);
   return {
-    left: clamp(point.x * width - side / 2, 0, width - side),
-    top: clamp(point.y * height - side / 2, 0, height - side),
-    side,
+    left: clamp(point.x * width - areaWidth / 2, inset, Math.max(inset, width - areaWidth - inset)),
+    top: clamp(point.y * height - areaHeight / 2, inset, Math.max(inset, height - areaHeight - inset)),
+    width: areaWidth,
+    height: areaHeight,
   };
 }

@@ -8,14 +8,17 @@ import {
 import { PhysicsWorld } from './PhysicsWorld.ts';
 import { createPowerUpState, POWER_UP_CONFIG, POWER_UPS, tickPowerUps, type PowerUpState } from './powerups.ts';
 import { predictBombTrajectory } from './trajectory.ts';
+import { createMatchState, type MatchState } from './match.ts';
+import { DEFAULT_GAME_SETTINGS } from './gameSettings.ts';
+import type { GameSettings } from './gameSettingsSchema.ts';
 
 export type MoveInput = Record<Team, Vec2>;
 
 export class Game {
   readonly playerRadius = 0.38;
-  readonly speed = 6.4;
-  readonly acceleration = 28;
-  readonly braking = 38;
+  get speed(): number { return this.settings.runSpeed; }
+  get acceleration(): number { return this.settings.acceleration; }
+  get braking(): number { return this.settings.braking; }
   readonly arena: ArenaDefinition;
   readonly mode: GameMode;
   state: GameState;
@@ -23,42 +26,59 @@ export class Game {
   economy: EconomyState;
   physics: PhysicsWorld;
   powerUps: PowerUpState;
+  match: MatchState = createMatchState();
   lastTheft: { sequence: number; text: string } | null = null;
   private theftSequence = 0;
   private nextEntityId = 0;
   private readonly rng: () => number;
+  settings: GameSettings;
 
-  constructor(arena: ArenaDefinition, mode: GameMode, rng: () => number = Math.random) {
+  constructor(arena: ArenaDefinition, mode: GameMode, rng: () => number = Math.random, settings: GameSettings = DEFAULT_GAME_SETTINGS) {
     this.arena = arena;
     this.mode = mode;
     this.rng = rng;
+    this.settings = structuredClone(settings);
     this.state = mode.createState(arena);
     this.deployments = createDeploymentState(arena);
     this.economy = createEconomyState(arena);
-    this.physics = new PhysicsWorld(arena, this.state, this.deployments, this.playerRadius);
+    this.physics = new PhysicsWorld(arena, this.state, this.deployments, this.playerRadius, this.settings.playerMass);
     this.powerUps = createPowerUpState(rng);
   }
 
   reset(): void {
+    this.match = createMatchState();
     this.state = this.mode.createState(this.arena);
     this.deployments = createDeploymentState(this.arena);
     this.economy = createEconomyState(this.arena);
     this.lastTheft = null;
     this.theftSequence = 0;
     this.nextEntityId = 0;
-    this.physics = new PhysicsWorld(this.arena, this.state, this.deployments, this.playerRadius);
+    this.physics = new PhysicsWorld(this.arena, this.state, this.deployments, this.playerRadius, this.settings.playerMass);
     this.powerUps = createPowerUpState(this.rng);
   }
 
+  start(): boolean {
+    if (this.match.phase !== 'ready') return false;
+    this.match.phase = 'playing';
+    return true;
+  }
+
+  setSettings(settings: GameSettings): void {
+    this.settings = structuredClone(settings);
+    this.physics.setPlayerMass(this.settings.playerMass);
+    this.physics.capPlayerSpeed('red', this.speed * (this.powerUps.players.red.speedRemaining > 0 ? POWER_UP_CONFIG.speedMultiplier : 1));
+    this.physics.capPlayerSpeed('blue', this.speed * (this.powerUps.players.blue.speedRemaining > 0 ? POWER_UP_CONFIG.speedMultiplier : 1));
+  }
+
   beginDeployAim(team: Team, id: DeployableId): void {
-    if (this.state.winner) return;
+    if (this.match.phase !== 'playing') return;
     if (id === 'mega-bomb' && this.powerUps.players[team].charges['mega-bomb'] <= 0) return;
     this.deployments.aim[team][id] = { definitionId: id, direction: { x: 0, z: 0 }, strength: 0, preview: null };
   }
 
   updateDeployAim(team: Team, id: DeployableId, direction: Vec2, strength: number): DeploymentPreview | null {
     const aim = this.deployments.aim[team][id];
-    if (!aim || this.state.winner) return null;
+    if (!aim || this.match.phase !== 'playing') return null;
     aim.strength = Math.max(0, Math.min(1, strength));
     const length = Math.hypot(direction.x, direction.z);
     aim.direction = length > 0 ? { x: direction.x / length, z: direction.z / length } : { x: 0, z: 0 };
@@ -72,6 +92,7 @@ export class Game {
   }
 
   releaseDeployAim(team: Team, id: DeployableId): 'placed' | 'cancelled' | 'invalid' {
+    if (this.match.phase !== 'playing') { this.cancelDeployAim(team, id); return 'cancelled'; }
     const aim = this.deployments.aim[team][id];
     if (!aim) return 'cancelled';
     const preview = this.proposePlacement(team, id);
@@ -82,11 +103,14 @@ export class Game {
     // Rechecked immediately before spending inventory.
     const entity = definition.deploy(`${team}-${++this.nextEntityId}`, team, preview, this.state.players[team].position);
     if (entity.kind === 'wall') {
+      this.match.stats[team].wallsPlaced++;
       this.deployments.walls.push(entity);
       this.physics.syncWalls(this.deployments.walls);
     } else {
+      entity.blastRadius = this.settings.projectiles[entity.definitionId].blastRadius;
+      this.match.stats[team].bombsThrown++;
       this.deployments.bombs.push(entity);
-      this.physics.addBomb(entity);
+      this.physics.addBomb(entity, this.settings.projectiles[entity.definitionId]);
     }
     if (definition.id === 'mega-bomb') this.powerUps.players[team].charges['mega-bomb']--;
     else this.deployments.inventory[team][definition.id] -= definition.inventoryCost;
@@ -126,7 +150,7 @@ export class Game {
       trajectory: definition.footprint.kind === 'circle'
         ? predictBombTrajectory(player.position, placement.position, definition.footprint.radius,
           this.arena.bounds, this.deployments.walls, this.state.players, this.playerRadius,
-          this.deployments.bombs, team)
+          this.deployments.bombs, team, this.settings.projectiles[id as 'bomb' | 'mega-bomb'])
         : undefined,
       valid: (id === 'mega-bomb' ? this.powerUps.players[team].charges['mega-bomb'] > 0
         : this.deployments.inventory[team][id] >= definition.inventoryCost) &&
@@ -135,19 +159,21 @@ export class Game {
   }
 
   update(dt: number, input: MoveInput): void {
-    if (this.state.winner) return;
+    if (this.match.phase !== 'playing') return;
     const step = Math.min(dt, 1 / 30);
+    this.match.duration += step;
     const speedBefore = { red: this.powerUps.players.red.speedRemaining, blue: this.powerUps.players.blue.speedRemaining };
     const speeds = {
       red: this.speed * (this.powerUps.players.red.speedRemaining > 0 ? POWER_UP_CONFIG.speedMultiplier : 1),
       blue: this.speed * (this.powerUps.players.blue.speedRemaining > 0 ? POWER_UP_CONFIG.speedMultiplier : 1),
     };
     this.physics.step(step, this.state, this.deployments, input, speeds, this.acceleration, this.braking);
-    tickDeploymentState(this.deployments, step);
+    tickDeploymentState(this.deployments, step, owner => { this.match.stats[owner].wallsDestroyed++; });
     this.physics.removeMissingBombs(this.deployments.bombs);
     this.physics.syncWalls(this.deployments.walls);
     const priorCollection = this.powerUps.lastCollection?.sequence;
-    tickPowerUps(this.powerUps, this.arena, this.deployments.walls, this.state.players, step, this.rng);
+    tickPowerUps(this.powerUps, this.arena, this.deployments.walls, this.state.players, step, this.rng,
+      team => { this.match.stats[team].powerUpsCollected++; });
     for (const team of ['red', 'blue'] as const) {
       if (speedBefore[team] > 0 && this.powerUps.players[team].speedRemaining === 0) this.physics.capPlayerSpeed(team, this.speed);
     }
@@ -169,7 +195,13 @@ export class Game {
     }
     const previousEvent = this.state.event;
     this.mode.update(this.state, this.arena);
-    if (this.state.winner) return;
+    if (this.state.winner) {
+      this.match.winner = this.state.winner;
+      this.match.phase = 'finished';
+      this.cancelDeployAim('red');
+      this.cancelDeployAim('blue');
+      return;
+    }
     const red = this.state.players.red.position;
     const blue = this.state.players.blue.position;
     if (Math.hypot(red.x - blue.x, red.z - blue.z) < 0.9) {
@@ -180,6 +212,7 @@ export class Game {
         const stolen = transferOnTerritoryTag(invader, this.deployments);
         this.economy.theftUsedThisVisit[invader] = true;
         if (stolen.walls + stolen.bombs > 0) {
+          this.match.stats[defender].resourcesStolen += stolen.walls + stolen.bombs;
           const text = `${defender.toUpperCase()} tagged ${invader.toUpperCase()} · +${stolen.walls} walls, +${stolen.bombs} bombs`;
           this.lastTheft = { sequence: ++this.theftSequence, text };
           if (this.state.event === previousEvent) this.state.event = text;

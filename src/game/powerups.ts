@@ -110,7 +110,8 @@ export function collectPowerUp(state: PowerUpState, pickupId: string, team: Team
 }
 
 export function tickPowerUps(state: PowerUpState, arena: ArenaDefinition, walls: readonly RuntimeWall[],
-  players: Record<Team, PlayerState>, dt: number, rng: () => number = Math.random): void {
+  players: Record<Team, PlayerState>, dt: number, rng: () => number = Math.random,
+  onCollect: (team: Team) => void = () => {}): void {
   for (const team of ['red', 'blue'] as const) {
     state.players[team].speedRemaining = Math.max(0, state.players[team].speedRemaining - dt);
     state.players[team].shieldRemaining = Math.max(0, state.players[team].shieldRemaining - dt);
@@ -122,7 +123,7 @@ export function tickPowerUps(state: PowerUpState, arena: ArenaDefinition, walls:
   for (const pickup of [...state.active]) {
     const collectors = (['red', 'blue'] as const).filter(team =>
       Math.hypot(players[team].position.x - pickup.position.x, players[team].position.z - pickup.position.z) <= POWER_UPS[pickup.definitionId].pickupRadius);
-    if (collectors.length) collectPowerUp(state, pickup.id, collectors[0]);
+    if (collectors.length && collectPowerUp(state, pickup.id, collectors[0])) onCollect(collectors[0]);
   }
   state.nextSpawnRemaining -= dt;
   if (state.nextSpawnRemaining <= 0) {

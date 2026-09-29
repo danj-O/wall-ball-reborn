@@ -1,6 +1,8 @@
 import { localPoint, WALL_HEIGHT, type ArenaBounds, type Team, type Vec2 } from './arena.ts';
 import type { RuntimeBomb, RuntimeWall } from './deployables.ts';
 import type { PlayerState } from './GameMode.ts';
+import { BASE_GAME_SETTINGS, type ProjectileTuning } from './gameSettingsSchema.ts';
+type LaunchTuning = Pick<ProjectileTuning, 'throwForce' | 'lob' | 'mass'>;
 
 export type FlightPoint = { x: number; y: number; z: number };
 export type FlightImpact = { kind: 'floor' | 'wall' | 'boundary' | 'player' | 'bomb'; id?: string; point: FlightPoint };
@@ -13,7 +15,8 @@ export const BOMB_FLIGHT = {
   linearDamping: 0.14, predictionStep: 1 / 120, maximumPredictionTime: 2,
 } as const;
 
-export function bombLaunch(origin: Vec2, target: Vec2, radius: number): { position: FlightPoint; velocity: FlightPoint } {
+export function bombLaunch(origin: Vec2, target: Vec2, radius: number,
+  tuning: LaunchTuning = BASE_GAME_SETTINGS.projectiles.bomb): { position: FlightPoint; velocity: FlightPoint } {
   const dx = target.x - origin.x;
   const dz = target.z - origin.z;
   const distance = Math.hypot(dx, dz);
@@ -22,9 +25,9 @@ export function bombLaunch(origin: Vec2, target: Vec2, radius: number): { positi
   return {
     position: { x: origin.x + dx * offset, y: BOMB_FLIGHT.startHeight, z: origin.z + dz * offset },
     velocity: {
-      x: dx / travelTime,
-      y: (radius - BOMB_FLIGHT.startHeight + BOMB_FLIGHT.gravity * travelTime * travelTime / 2) / travelTime,
-      z: dz / travelTime,
+      x: dx / travelTime * tuning.throwForce / tuning.mass,
+      y: (radius - BOMB_FLIGHT.startHeight + BOMB_FLIGHT.gravity * travelTime * travelTime / 2) / travelTime * tuning.throwForce * tuning.lob / tuning.mass,
+      z: dz / travelTime * tuning.throwForce / tuning.mass,
     },
   };
 }
@@ -60,8 +63,9 @@ function firstContact(point: FlightPoint, radius: number, bounds: ArenaBounds,
 /** Predicts first contact only. A bounce can depend on moving players/bombs after release. */
 export function predictBombTrajectory(origin: Vec2, target: Vec2, radius: number, bounds: ArenaBounds,
   walls: readonly RuntimeWall[], players: Record<Team, PlayerState>, playerRadius: number,
-  bombs: readonly RuntimeBomb[], thrower: Team): BombTrajectory {
-  const launch = bombLaunch(origin, target, radius);
+  bombs: readonly RuntimeBomb[], thrower: Team,
+  tuning: LaunchTuning = BASE_GAME_SETTINGS.projectiles.bomb): BombTrajectory {
+  const launch = bombLaunch(origin, target, radius, tuning);
   const points: FlightPoint[] = [{ ...launch.position }];
   const velocity = { ...launch.velocity };
   const dt = BOMB_FLIGHT.predictionStep;

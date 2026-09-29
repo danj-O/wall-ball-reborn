@@ -1,0 +1,20 @@
+{
+  "runSpeed": 10.8,
+  "acceleration": 57,
+  "braking": 56,
+  "playerMass": 5.3,
+  "projectiles": {
+    "bomb": {
+      "throwForce": 0.8,
+      "lob": 2,
+      "mass": 1,
+      "blastRadius": 2
+    },
+    "mega-bomb": {
+      "throwForce": 1.35,
+      "lob": 1.9,
+      "mass": 1.7,
+      "blastRadius": 4
+    }
+  }
+}

@@ -10,6 +10,7 @@ const idle = { red: { x: 0, z: 0 }, blue: { x: 0, z: 0 } };
 const setup = () => {
   const arena = cloneArena(DEFAULT_ARENA);
   const game = new Game(arena, new CaptureTheFlag());
+  game.start();
   return { arena, game };
 };
 function run(game: Game, seconds: number): void {
@@ -53,6 +54,7 @@ test('each depot uses its arena capacity setting', () => {
   arena.depots[0].capacity = 4;
   arena.depots[1].capacity = 11;
   const game = new Game(arena, new CaptureTheFlag());
+  game.start();
   tickEconomy(game.economy, game.deployments, game.state.players, 120);
   assert.deepEqual(game.economy.depots.map(d => d.stock), [4, 11]);
   assert.deepEqual(arena.depots.map(d => d.capacity), [4, 11]);
@@ -104,6 +106,7 @@ test('depot footprint round-trips through arena serialization and permits nearby
   const loaded = migrateArena(JSON.parse(JSON.stringify(arena)));
   assert.deepEqual(loaded.depots.at(-1), arena.depots.at(-1));
   const game = new Game(loaded, new CaptureTheFlag());
+  game.start();
   game.state.players.red.position = { x: -2, z: 7.5 };
   const context = { arena: loaded, walls: game.deployments.walls, bombs: game.deployments.bombs, players: game.state.players };
   assert.equal(DEPLOYABLES.wall.isValid({ position: { x: -2, z: 5 }, rotation: 0 }, context), true);

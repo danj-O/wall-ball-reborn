@@ -5,11 +5,15 @@ import { Game, type MoveInput } from './game/Game.ts';
 import type { Team, Vec2 } from './game/arena.ts';
 import { AIM_DEAD_ZONE, DEPLOYABLES, type DeployableId } from './game/deployables.ts';
 import { TouchControls, type ActionSlot } from './input/TouchControls.ts';
-import { normalizeControlLayout, type ControlId, type ControlLayout } from './input/controlLayout.ts';
+import { CONTROL_SIZE_RANGE, MOVE_AREA_RANGE, MOVE_INSET_RANGE, normalizeControlLayout, type ControlId, type ControlLayout } from './input/controlLayout.ts';
 import { ArenaView } from './view/ArenaView.ts';
+import { DEFAULT_GAME_SETTINGS, loadGameSettings } from './game/gameSettings.ts';
+import { GAME_SETTING_RANGES, type GameSettings, type ProjectileTuning } from './game/gameSettingsSchema.ts';
 
 const STORAGE_KEY = 'wall-ball-reborn-arena-v1';
 const CONTROL_STORAGE_KEY = 'wall-ball-reborn-controls-v1';
+const GAME_SETTINGS_STORAGE_KEY = 'wall-ball-reborn-game-settings-v1';
+const GAME_DEFAULT_SAVED_KEY = 'wall-ball-reborn-game-default-saved';
 
 function loadArena(): ArenaDefinition {
   try {
@@ -33,7 +37,8 @@ function loadArena(): ArenaDefinition {
 
 let arena = loadArena();
 const mode = new CaptureTheFlag();
-let game = new Game(arena, mode);
+let gameSettings = loadGameSettings(localStorage);
+let game = new Game(arena, mode, Math.random, gameSettings);
 let editing = false;
 let editingControls = false;
 let selectedControl: ControlId = 'red-move';
@@ -64,7 +69,13 @@ app.innerHTML = `
     </section>
     <aside id="sidebar" class="sidebar" hidden>
       <div class="menu-heading"><span class="brand-mark">WB</span><div><strong>WALL BALL</strong><small id="mode-label">MATCH / CAPTURE THE FLAG</small></div></div>
-      <div class="menu-actions"><button id="touch-toggle" type="button">Touch Controls</button><button id="edit-button" type="button">Customize Arena</button><button id="controls-button" type="button">Customize Controls</button><button id="reset-button" type="button">Reset Match</button><button id="fullscreen-button" type="button" aria-pressed="false">Enter Fullscreen</button></div>
+      <div class="menu-actions"><button id="new-match-button" type="button">Start / New Match</button><button id="touch-toggle" type="button">Touch Controls</button><button id="edit-button" type="button">Customize Arena</button><button id="controls-button" type="button">Customize Controls</button><button id="game-settings-button" type="button" aria-expanded="false">Game Tuning</button><button id="reset-button" type="button">Return to Start</button><button id="fullscreen-button" type="button" aria-pressed="false">Enter Fullscreen</button></div>
+      <div id="game-settings-panel" class="game-settings-panel" hidden>
+        <div class="section-kicker">GAME TUNING</div><p class="hint">Speed is units/sec; acceleration and braking are units/sec². Player and projectile weight affect physical collisions. Blast radius is in arena units. Changes apply to movement and future throws immediately. These settings stay on this device.</p>
+        <div id="game-settings-sliders"></div>
+        <div class="editor-actions"><button id="reset-game-settings" type="button">Reset Tuning</button><button id="done-game-settings" type="button">Done</button></div>
+        <div id="developer-game-defaults" class="developer-controls" hidden><button id="save-game-default" class="editor-wide-button" type="button">Save as Game Default</button><p class="hint">Developer mode: writes the preset used by new devices.</p><p id="game-default-status" class="control-default-status" role="status" aria-live="polite"></p></div>
+      </div>
       <div id="display-help" class="display-help" hidden></div>
       <div class="section-kicker">CURRENT MODE</div><h1>Capture<br>the Flag<span>.</span></h1>
       <p class="intro">Steal the other team's flag and bring it back to your base. Touch an enemy carrier to return your flag. Cross depot circles for resources; tag invaders in your territory to take half their supplies.</p>
@@ -95,12 +106,27 @@ app.innerHTML = `
     <div id="controls-panel" class="editor-dock controls-dock" hidden>
       <div class="editor-heading"><strong>CONTROLS</strong><span>Tap a pad to edit it, then drag it to move it.</span></div>
       <div class="section-kicker">SELECTED: <span id="selected-control">RED MOVE</span></div>
-      <label class="control-setting">Pad size <output id="pad-size-value">110px</output><input id="pad-size" type="range" min="56" max="220" step="2" value="110"></label>
-      <label class="control-setting">Floating area <output id="float-radius-value">70px</output><input id="float-radius" type="range" min="28" max="160" step="2" value="70"></label>
-      <p class="hint">Each pad keeps its own size and drag distance. Move starts wherever you touch inside its dashed square; the joystick appears under your finger. Drag the pad to reposition that square.</p>
+      <label class="control-setting"><span id="pad-size-label">Pad size</span> <output id="pad-size-value">110px</output><input id="pad-size" type="range" min="38" max="280" step="2" value="110"></label>
+      <label id="move-area-setting" class="control-setting">Movement touch area <output id="move-area-value">320px</output><input id="move-area" type="range" min="150" max="480" step="2" value="320"></label>
+      <label id="move-inset-setting" class="control-setting">Edge inset <output id="move-inset-value">6px</output><input id="move-inset" type="range" min="0" max="32" step="1" value="6"></label>
+      <label id="float-radius-setting" class="control-setting">Aim travel <output id="float-radius-value">70px</output><input id="float-radius" type="range" min="28" max="160" step="2" value="70"></label>
+      <p class="hint">Movement starts anywhere in the dashed corner area and floats under your finger. Area size and edge inset do not change joystick travel. Action size changes only the visible/touch pad, not game distance.</p>
+      <div id="developer-control-defaults" class="developer-controls" hidden><button id="save-code-default" class="editor-wide-button" type="button">Save as Code Default</button><p class="hint">Developer mode: use this layout for new devices and Reset Layout.</p><p id="control-default-status" class="control-default-status" role="status" aria-live="polite"></p></div>
       <div class="editor-actions"><button id="reset-controls" type="button">Reset Layout</button><button id="done-controls" type="button">Done</button></div>
     </div>
   </main>
+  <div id="match-overlay" class="match-overlay" role="dialog" aria-live="polite" aria-label="Match state">
+    <div id="ready-screen" class="match-card"><div class="section-kicker">CAPTURE THE FLAG</div><h2>WALL BALL</h2><div class="instruction-grid">
+      <div><b>◆ Objective</b><span>Steal the enemy gem and bring it to your base.</span></div>
+      <div><b>✥ Move</b><span>Touch and drag anywhere in your movement corner.</span></div>
+      <div><b>▣ Build</b><span>Drag Wall to preview. Release to build; return to center to cancel.</span></div>
+      <div><b>● Bomb</b><span>Drag to aim and set distance. Release to throw; return to center to cancel.</span></div>
+      <div><b>✦ Center</b><span>Depots give walls and bombs. Power-ups appear in the contested middle.</span></div>
+      <div><b>↔ Defend</b><span>Tag an invader to return your flag and potentially steal resources.</span></div>
+    </div><button id="start-game" class="match-primary" type="button">START GAME</button></div>
+    <div id="results-screen" class="match-card" hidden><div class="section-kicker">MATCH COMPLETE</div><h2 id="winner-heading"></h2><div id="match-duration" class="match-duration"></div><div id="results-table" class="results-table"></div><div class="results-actions"><button id="play-again" class="match-primary" type="button">PLAY AGAIN</button><button id="results-menu" type="button">MENU</button></div></div>
+  </div>
+  <div id="developer-confirm" class="developer-confirm" hidden role="alertdialog" aria-modal="true" aria-labelledby="developer-confirm-title" aria-describedby="developer-confirm-message"><div class="developer-confirm-card"><h2 id="developer-confirm-title">Save game default?</h2><p id="developer-confirm-message"></p><div class="editor-actions"><button id="developer-cancel" type="button">Cancel</button><button id="developer-accept" type="button">Yes, change code</button></div></div></div>
   <div id="rotate-overlay" class="rotate-overlay" hidden role="status" aria-live="polite"><div class="rotate-icon" aria-hidden="true">↻</div><strong>Rotate your device</strong><span>Wall Ball is designed for landscape play.</span></div>`;
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!;
@@ -123,6 +149,9 @@ const displayHelp = document.querySelector<HTMLDivElement>('#display-help')!;
 const rotateOverlay = document.querySelector<HTMLDivElement>('#rotate-overlay')!;
 const gameToast = document.querySelector<HTMLDivElement>('#game-toast')!;
 const debugPanel = document.querySelector<HTMLElement>('#debug-panel')!;
+const matchOverlay = document.querySelector<HTMLDivElement>('#match-overlay')!;
+const readyScreen = document.querySelector<HTMLDivElement>('#ready-screen')!;
+const resultsScreen = document.querySelector<HTMLDivElement>('#results-screen')!;
 const debugEnabled = new URLSearchParams(location.search).has('debug');
 let touchController: TouchControls;
 const visibleAbilitySlots: Record<Team, boolean> = { red: false, blue: false };
@@ -149,10 +178,15 @@ function updateInventoryUi(): void {
 }
 
 function updateUi(): void {
-  status.classList.toggle('winner', !!game.state.winner);
-  status.innerHTML = game.state.winner
-    ? `<span class="status-kicker">MATCH COMPLETE</span><strong>${game.state.winner.toUpperCase()} WINS</strong><span>Reset Match to play again.</span>`
-    : `<span class="status-kicker">${editing || editingControls ? 'EDITOR ACTIVE' : 'MATCH LIVE'}</span><strong>${editing ? 'Customize Arena' : editingControls ? 'Customize Controls' : game.state.event}</strong>`;
+  const phase = game.match.phase;
+  status.classList.toggle('winner', phase === 'finished');
+  status.innerHTML = phase === 'finished'
+    ? `<span class="status-kicker">MATCH COMPLETE</span><strong>${game.match.winner?.toUpperCase()} WINS</strong>`
+    : `<span class="status-kicker">${editing || editingControls ? 'EDITOR ACTIVE' : phase === 'ready' ? 'READY' : 'MATCH LIVE'}</span><strong>${editing ? 'Customize Arena' : editingControls ? 'Customize Controls' : phase === 'ready' ? 'Start when both players are ready.' : game.state.event}</strong>`;
+  matchOverlay.hidden = editing || editingControls || phase === 'playing';
+  readyScreen.hidden = phase !== 'ready';
+  resultsScreen.hidden = phase !== 'finished';
+  if (phase === 'finished') updateResultsUi();
   editButton.textContent = editing ? 'Play Arena' : 'Customize Arena';
   controlsButton.textContent = editingControls ? 'Done Controls' : 'Customize Controls';
   document.querySelector('#mode-label')!.textContent = editing ? 'CUSTOMIZE ARENA' : editingControls ? 'CUSTOMIZE CONTROLS' : 'MATCH / CAPTURE THE FLAG';
@@ -181,7 +215,7 @@ function updateUi(): void {
   document.querySelector<HTMLElement>('#flag-options')!.hidden = !flag || !!placementTool;
   document.querySelector<HTMLElement>('#power-region-options')!.hidden = !region || !!placementTool;
   if (depot) document.querySelector<HTMLInputElement>('#depot-capacity')!.value = String(depot.capacity);
-  touchControls.hidden = editing || (!touchVisible && !editingControls) || menuOpen || portraitBlocked;
+  touchControls.hidden = editing || (!touchVisible && !editingControls) || menuOpen || portraitBlocked || (phase !== 'playing' && !editingControls);
   sidebar.hidden = !menuOpen;
   menuScrim.hidden = !menuOpen;
   menuButton.setAttribute('aria-expanded', String(menuOpen));
@@ -193,6 +227,22 @@ function updateUi(): void {
   debugPanel.hidden = !debugEnabled;
 }
 
+function updateResultsUi(): void {
+  const winner = game.match.winner!;
+  const heading = document.querySelector<HTMLElement>('#winner-heading')!;
+  heading.textContent = `${winner.toUpperCase()} WINS!`;
+  heading.dataset.team = winner;
+  const seconds = Math.floor(game.match.duration);
+  document.querySelector<HTMLElement>('#match-duration')!.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+  const red = game.match.stats.red;
+  const blue = game.match.stats.blue;
+  document.querySelector<HTMLElement>('#results-table')!.innerHTML = [
+    ['WALL BALL', 'RED', 'BLUE'], ['Walls', red.wallsPlaced, blue.wallsPlaced],
+    ['Bombs', red.bombsThrown, blue.bombsThrown], ['Broken', red.wallsDestroyed, blue.wallsDestroyed],
+    ['Powers', red.powerUpsCollected, blue.powerUpsCollected], ['Stolen', red.resourcesStolen, blue.resourcesStolen],
+  ].map(row => row.map(value => `<span>${value}</span>`).join('')).join('');
+}
+
 function saveAndRefresh(): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(arena));
   view.rebuildArena(arena, selectedId);
@@ -202,13 +252,32 @@ function saveAndRefresh(): void {
 function resetMatch(): void {
   touchController.cancelAll();
   keyboardOwned.clear();
-  game = new Game(arena, mode);
+  game = new Game(arena, mode, Math.random, gameSettings);
   lastTheftSequence = 0;
   toastUntil = 0;
   touchMove.red = { x: 0, z: 0 };
   touchMove.blue = { x: 0, z: 0 };
   updateUi();
 }
+
+function startMatch(): void {
+  if (editingControls) finishControlsCustomization();
+  if (editing) editButton.click();
+  held.clear();
+  keyboardOwned.clear();
+  touchController.cancelAll();
+  touchMove.red = { x: 0, z: 0 };
+  touchMove.blue = { x: 0, z: 0 };
+  if (game.match.phase !== 'ready') resetMatch();
+  game.start();
+  menuOpen = false;
+  accumulator = 0;
+  updateUi();
+}
+document.querySelector<HTMLButtonElement>('#start-game')!.addEventListener('click', startMatch);
+document.querySelector<HTMLButtonElement>('#play-again')!.addEventListener('click', () => { resetMatch(); menuOpen = false; updateUi(); });
+document.querySelector<HTMLButtonElement>('#results-menu')!.addEventListener('click', () => { resetMatch(); setMenuOpen(true); });
+document.querySelector<HTMLButtonElement>('#new-match-button')!.addEventListener('click', startMatch);
 
 editButton.addEventListener('click', () => {
   if (editingControls) finishControlsCustomization();
@@ -231,11 +300,25 @@ editButton.addEventListener('click', () => {
 });
 function syncControlSettings(): void {
   const layout = touchController.getLayout();
+  const movement = selectedControl.endsWith('-move');
   document.querySelector<HTMLElement>('#selected-control')!.textContent = selectedControl.replace('-', ' ').toUpperCase();
+  document.querySelector<HTMLElement>('#pad-size-label')!.textContent = movement ? 'Joystick visual size' : 'Action pad size';
+  document.querySelector<HTMLInputElement>('#pad-size')!.min = String(CONTROL_SIZE_RANGE.min);
+  document.querySelector<HTMLInputElement>('#pad-size')!.max = String(CONTROL_SIZE_RANGE.max);
   document.querySelector<HTMLInputElement>('#pad-size')!.value = String(layout.sizes[selectedControl]);
   document.querySelector<HTMLInputElement>('#float-radius')!.value = String(layout.floatRadii[selectedControl]);
   document.querySelector<HTMLOutputElement>('#pad-size-value')!.textContent = `${layout.sizes[selectedControl]}px`;
   document.querySelector<HTMLOutputElement>('#float-radius-value')!.textContent = `${layout.floatRadii[selectedControl]}px`;
+  document.querySelector<HTMLElement>('#move-area-setting')!.hidden = !movement;
+  document.querySelector<HTMLElement>('#move-inset-setting')!.hidden = !movement;
+  document.querySelector<HTMLElement>('#float-radius-setting')!.hidden = movement;
+  if (movement) {
+    const id = selectedControl as 'red-move' | 'blue-move';
+    document.querySelector<HTMLInputElement>('#move-area')!.value = String(layout.moveAreas[id]);
+    document.querySelector<HTMLInputElement>('#move-inset')!.value = String(layout.moveInsets[id]);
+    document.querySelector<HTMLOutputElement>('#move-area-value')!.textContent = `${layout.moveAreas[id]}px`;
+    document.querySelector<HTMLOutputElement>('#move-inset-value')!.textContent = `${layout.moveInsets[id]}px`;
+  }
 }
 function persistControlLayout(layout: ControlLayout): void {
   localStorage.setItem(CONTROL_STORAGE_KEY, JSON.stringify(layout));
@@ -264,11 +347,156 @@ controlsButton.addEventListener('click', () => {
 });
 document.querySelector<HTMLButtonElement>('#done-controls')!.addEventListener('click', finishControlsCustomization);
 document.querySelector<HTMLButtonElement>('#reset-controls')!.addEventListener('click', () => touchController.resetLayout());
+
+type MovementTuningField = 'runSpeed' | 'acceleration' | 'braking' | 'playerMass';
+type ProjectileTuningField = keyof ProjectileTuning;
+type TuningRow =
+  | { label: string; field: MovementTuningField; kind?: undefined; groupStart?: boolean }
+  | { label: string; field: ProjectileTuningField; kind: keyof GameSettings['projectiles']; groupStart?: boolean };
+const tuningRows: TuningRow[] = [
+  { label: 'Player run speed', field: 'runSpeed' },
+  { label: 'Start acceleration', field: 'acceleration' },
+  { label: 'Stopping brake', field: 'braking' },
+  { label: 'Player weight', field: 'playerMass' },
+  ...Object.keys(DEFAULT_GAME_SETTINGS.projectiles).flatMap(id => {
+    const kind = id as keyof GameSettings['projectiles'];
+    const name = id === 'mega-bomb' ? 'Mega Bomb' : id.charAt(0).toUpperCase() + id.slice(1).replaceAll('-', ' ');
+    return ([
+      { label: `${name} throw force`, kind, field: 'throwForce', groupStart: true },
+      { label: `${name} lob`, kind, field: 'lob' },
+      { label: `${name} weight`, kind, field: 'mass' },
+      { label: `${name} blast radius`, kind, field: 'blastRadius' },
+    ] satisfies TuningRow[]);
+  }),
+];
+const settingsPanel = document.querySelector<HTMLElement>('#game-settings-panel')!;
+const settingsButton = document.querySelector<HTMLButtonElement>('#game-settings-button')!;
+const sliders = document.querySelector<HTMLElement>('#game-settings-sliders')!;
+function tuningValue(row: typeof tuningRows[number]): number {
+  return row.kind ? gameSettings.projectiles[row.kind][row.field] : gameSettings[row.field];
+}
+function refreshTuningSliders(): void {
+  for (const [index, row] of tuningRows.entries()) {
+    const input = document.querySelector<HTMLInputElement>(`#tuning-${index}`)!;
+    input.value = String(tuningValue(row));
+    document.querySelector<HTMLOutputElement>(`#tuning-value-${index}`)!.value = tuningValue(row).toFixed(2).replace(/\.00$/, '');
+  }
+}
+for (const [index, row] of tuningRows.entries()) {
+  const range = GAME_SETTING_RANGES[row.field];
+  const label = document.createElement('label');
+  label.className = `control-setting${row.groupStart ? ' tuning-group-start' : ''}`;
+  label.innerHTML = `<span>${row.label}</span><output id="tuning-value-${index}"></output><input id="tuning-${index}" type="range" min="${range.min}" max="${range.max}" step="${range.step}">`;
+  sliders.append(label);
+  label.querySelector('input')!.addEventListener('input', event => {
+    const value = Number((event.currentTarget as HTMLInputElement).value);
+    if (row.kind) gameSettings.projectiles[row.kind][row.field] = value;
+    else gameSettings[row.field] = value;
+    game.setSettings(gameSettings);
+    localStorage.setItem(GAME_SETTINGS_STORAGE_KEY, JSON.stringify(gameSettings));
+    refreshTuningSliders();
+  });
+}
+refreshTuningSliders();
+settingsButton.addEventListener('click', () => {
+  settingsPanel.hidden = !settingsPanel.hidden;
+  settingsButton.setAttribute('aria-expanded', String(!settingsPanel.hidden));
+  if (!settingsPanel.hidden) settingsPanel.scrollIntoView({ block: 'nearest' });
+});
+document.querySelector<HTMLButtonElement>('#done-game-settings')!.addEventListener('click', () => {
+  settingsPanel.hidden = true;
+  settingsButton.setAttribute('aria-expanded', 'false');
+});
+document.querySelector<HTMLButtonElement>('#reset-game-settings')!.addEventListener('click', () => {
+  gameSettings = structuredClone(DEFAULT_GAME_SETTINGS);
+  game.setSettings(gameSettings);
+  localStorage.setItem(GAME_SETTINGS_STORAGE_KEY, JSON.stringify(gameSettings));
+  refreshTuningSliders();
+});
+
+function confirmCodeDefault(file: string): Promise<boolean> {
+  const overlay = document.querySelector<HTMLElement>('#developer-confirm')!;
+  document.querySelector<HTMLElement>('#developer-confirm-message')!.textContent =
+    `Are you sure? This alters the game code by writing ${file}. Everyone using a fresh install will get these settings.`;
+  overlay.hidden = false;
+  const cancel = document.querySelector<HTMLButtonElement>('#developer-cancel')!;
+  const accept = document.querySelector<HTMLButtonElement>('#developer-accept')!;
+  cancel.focus();
+  return new Promise(resolve => {
+    const finish = (approved: boolean) => {
+      overlay.hidden = true;
+      cancel.removeEventListener('click', onCancel);
+      accept.removeEventListener('click', onAccept);
+      document.removeEventListener('keydown', onKey);
+      resolve(approved);
+    };
+    const onCancel = () => finish(false);
+    const onAccept = () => finish(true);
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); finish(false); } };
+    cancel.addEventListener('click', onCancel);
+    accept.addEventListener('click', onAccept);
+    document.addEventListener('keydown', onKey);
+  });
+}
+if (import.meta.env.DEV) {
+  document.querySelector<HTMLElement>('#developer-control-defaults')!.hidden = false;
+  document.querySelector<HTMLElement>('#developer-game-defaults')!.hidden = false;
+  document.querySelector<HTMLButtonElement>('#save-code-default')!.addEventListener('click', async () => {
+    if (!await confirmCodeDefault('src/input/mobileControlDefaults.json')) return;
+    const button = document.querySelector<HTMLButtonElement>('#save-code-default')!;
+    const status = document.querySelector<HTMLElement>('#control-default-status')!;
+    button.disabled = true;
+    status.textContent = 'Saving…';
+    try {
+      const response = await fetch('/__dev/control-defaults', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(touchController.getLayout()),
+      });
+      if (response.status === 404) throw new Error('Save route unavailable. Restart npm run dev, then reload this page.');
+      if (!response.ok) throw new Error(`Save failed (${response.status})`);
+      status.textContent = 'Saved in src/input/mobileControlDefaults.json. New devices and Reset Layout use this preset.';
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : 'Could not save layout';
+    } finally { button.disabled = false; }
+  });
+  document.querySelector<HTMLButtonElement>('#save-game-default')!.addEventListener('click', async () => {
+    if (!await confirmCodeDefault('src/game/gameSettingsDefaults.json')) return;
+    const button = document.querySelector<HTMLButtonElement>('#save-game-default')!;
+    const status = document.querySelector<HTMLElement>('#game-default-status')!;
+    button.disabled = true;
+    status.textContent = 'Saving…';
+    sessionStorage.setItem(GAME_DEFAULT_SAVED_KEY, '1');
+    try {
+      const response = await fetch('/__dev/game-defaults', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(gameSettings),
+      });
+      if (response.status === 404) throw new Error('Save route unavailable. Restart npm run dev, then reload this page.');
+      if (!response.ok) throw new Error(`Save failed (${response.status})`);
+      status.textContent = 'Saved in src/game/gameSettingsDefaults.json. New devices and Reset Tuning use this preset after reload.';
+    } catch (error) {
+      sessionStorage.removeItem(GAME_DEFAULT_SAVED_KEY);
+      status.textContent = error instanceof Error ? error.message : 'Could not save defaults';
+    }
+    finally { button.disabled = false; }
+  });
+}
 for (const [selector, key] of [['#pad-size', 'sizes'], ['#float-radius', 'floatRadii']] as const) {
   document.querySelector<HTMLInputElement>(selector)!.addEventListener('input', event => {
     const value = Number((event.currentTarget as HTMLInputElement).value);
     const layout = touchController.getLayout();
     layout[key][selectedControl] = value;
+    touchController.setLayout(layout);
+    persistControlLayout(touchController.getLayout());
+  });
+}
+for (const [selector, key] of [['#move-area', 'moveAreas'], ['#move-inset', 'moveInsets']] as const) {
+  const slider = document.querySelector<HTMLInputElement>(selector)!;
+  slider.min = String(key === 'moveAreas' ? MOVE_AREA_RANGE.min : MOVE_INSET_RANGE.min);
+  slider.max = String(key === 'moveAreas' ? MOVE_AREA_RANGE.max : MOVE_INSET_RANGE.max);
+  slider.addEventListener('input', () => {
+    if (!selectedControl.endsWith('-move')) return;
+    const layout = touchController.getLayout();
+    layout[key][selectedControl as 'red-move' | 'blue-move'] = Number(slider.value);
     touchController.setLayout(layout);
     persistControlLayout(touchController.getLayout());
   });
@@ -369,10 +597,10 @@ function loadControlLayout(): ControlLayout | undefined {
 }
 touchController = new TouchControls(touchControls, {
   toWorld: (dx, dy) => view.screenDirectionToGround(dx, dy),
-  onMove: (team, input) => { if (!editing && !editingControls) touchMove[team] = input; },
-  onAimStart: (team, id) => { if (!editing && !editingControls) game.beginDeployAim(team, id); },
-  onAim: (team, id, direction, strength) => { if (!editing && !editingControls) game.updateDeployAim(team, id, direction, strength); },
-  onAimRelease: (team, id) => { if (!editing && !editingControls) reportDeployment(team, id, game.releaseDeployAim(team, id)); },
+  onMove: (team, input) => { if (!editing && !editingControls && game.match.phase === 'playing') touchMove[team] = input; },
+  onAimStart: (team, id) => { if (!editing && !editingControls && game.match.phase === 'playing') game.beginDeployAim(team, id); },
+  onAim: (team, id, direction, strength) => { if (!editing && !editingControls && game.match.phase === 'playing') game.updateDeployAim(team, id, direction, strength); },
+  onAimRelease: (team, id) => { if (!editing && !editingControls && game.match.phase === 'playing') reportDeployment(team, id, game.releaseDeployAim(team, id)); },
   onAimCancel: (team, id) => game.cancelDeployAim(team, id),
 }, loadControlLayout(), persistControlLayout, id => { selectedControl = id; syncControlSettings(); });
 const actionSlots: ActionSlot[] = (['wall', 'bomb'] as const).map(id => DEPLOYABLES[id]).map(definition => ({
@@ -615,7 +843,7 @@ function keyboardAim(team: Team, id: DeployableId): void {
   game.updateDeployAim(team, id, direction, id !== 'wall' ? keyboardThrowStrength[team] : 0.67);
 }
 canvas.addEventListener('wheel', event => {
-  if (editing || editingControls) return;
+  if (editing || editingControls || game.match.phase !== 'playing') return;
   const team = keyboardOwned.has('KeyE') || keyboardOwned.has('KeyQ') ? 'red'
     : keyboardOwned.has('ShiftRight') || keyboardOwned.has('KeyP') ? 'blue' : null;
   if (!team) return;
@@ -631,6 +859,14 @@ window.addEventListener('keydown', event => {
   }
   if (editingControls) {
     if (event.code === 'Escape') finishControlsCustomization();
+    return;
+  }
+  if (!editing && game.match.phase !== 'playing') {
+    if (event.code === 'Enter') {
+      event.preventDefault();
+      if (game.match.phase === 'ready') startMatch();
+      else { resetMatch(); menuOpen = false; updateUi(); }
+    }
     return;
   }
   if (controlKeys.has(event.code) || (editing && ['KeyR', 'Delete', 'Backspace', 'Escape'].includes(event.code))) event.preventDefault();
@@ -656,7 +892,6 @@ window.addEventListener('keydown', event => {
   }
   const action = actionKeys[event.code];
   if (action) {
-    if (game.state.winner && event.code === 'Enter') { resetMatch(); return; }
     if (game.deployments.aim[action[0]][action[1]]) return;
     game.beginDeployAim(action[0], action[1]);
     keyboardOwned.add(event.code);
@@ -664,7 +899,7 @@ window.addEventListener('keydown', event => {
   }
 });
 window.addEventListener('keyup', event => {
-  if (menuOpen || portraitBlocked || editingControls) {
+  if (menuOpen || portraitBlocked || editingControls || game.match.phase !== 'playing') {
     keyboardOwned.delete(event.code);
     held.delete(event.code);
     return;
@@ -714,14 +949,25 @@ let lastTheftSequence = 0;
 let toastUntil = 0;
 let lastDebug = 0;
 function frame(now: number): void {
-  accumulator += Math.min((now - previous) / 1000, 0.1);
+  if (game.match.phase === 'playing' && !editing && !editingControls) accumulator += Math.min((now - previous) / 1000, 0.1);
+  else accumulator = 0;
   previous = now;
-  if (!editing && !editingControls) {
+  if (!editing && !editingControls && game.match.phase === 'playing') {
     while (accumulator >= 1 / 60) {
       game.update(1 / 60, input());
       accumulator -= 1 / 60;
+      if (game.match.winner !== null) {
+        held.clear();
+        keyboardOwned.clear();
+        touchController.cancelAll();
+        touchMove.red = { x: 0, z: 0 };
+        touchMove.blue = { x: 0, z: 0 };
+        accumulator = 0;
+        updateUi();
+        break;
+      }
     }
-    for (const code of keyboardOwned) {
+    for (const code of game.match.phase === 'playing' ? keyboardOwned : []) {
       const [team, id] = actionKeys[code];
       if (held.has(code) && game.deployments.aim[team][id]) keyboardAim(team, id);
     }
@@ -751,4 +997,13 @@ function frame(now: number): void {
 }
 refreshPortraitState();
 refreshFullscreenUi();
+if (sessionStorage.getItem(GAME_DEFAULT_SAVED_KEY) === '1') {
+  sessionStorage.removeItem(GAME_DEFAULT_SAVED_KEY);
+  menuOpen = true;
+  settingsPanel.hidden = false;
+  settingsButton.setAttribute('aria-expanded', 'true');
+  document.querySelector<HTMLElement>('#game-default-status')!.textContent =
+    'Saved as the game default. New devices and Reset Tuning use this preset.';
+  updateUi();
+}
 requestAnimationFrame(frame);
