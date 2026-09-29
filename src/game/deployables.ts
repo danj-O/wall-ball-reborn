@@ -1,7 +1,10 @@
 import { circleTouchesWall, DEFAULT_PLAYER_WALL_TYPE, WALL_HEIGHT, WALL_TYPES, type ArenaDefinition, type Team, type Vec2, type WallDefinition } from './arena.ts';
 import type { PlayerState } from './GameMode.ts';
+import type { BombTrajectory } from './trajectory.ts';
 
-export type DeployableId = 'wall' | 'bomb';
+export type ResourceId = 'wall' | 'bomb';
+export type DeployableId = ResourceId | 'mega-bomb';
+export type BombType = 'bomb' | 'mega-bomb';
 export type PreviewShape =
   | { kind: 'box'; width: number; depth: number; height: number }
   | { kind: 'sphere'; radius: number };
@@ -9,24 +12,25 @@ export type Footprint =
   | { kind: 'box'; width: number; depth: number }
   | { kind: 'circle'; radius: number };
 export type Placement = { position: Vec2; rotation: number };
-export type RuntimeWall = WallDefinition & { kind: 'wall'; definitionId: DeployableId; owner: Team | null; hp: number; source: 'initial' | 'deployed' };
+export type RuntimeWall = WallDefinition & { kind: 'wall'; definitionId: ResourceId; owner: Team | null; hp: number; source: 'initial' | 'deployed' };
 export type RuntimeBomb = {
-  kind: 'bomb'; definitionId: DeployableId; id: string; owner: Team;
+  kind: 'bomb'; definitionId: BombType; id: string; owner: Team;
   origin: Vec2; target: Vec2; position: Vec2; height: number;
   orientation: { x: number; y: number; z: number; w: number };
   phase: 'flying' | 'lit'; travelDuration: number;
   velocity: Vec2; verticalVelocity: number;
   fuseRemaining: number; fuseDuration: number;
+  blastRadius: number; wallDamage: number; physicalRadius: number;
 };
 export type RuntimeEntity = RuntimeWall | RuntimeBomb;
-export type Explosion = { id: string; position: Vec2; radius: number; remaining: number; duration: number };
-export type DeploymentPreview = Placement & { definitionId: DeployableId; valid: boolean; landingHeight: number };
+export type Explosion = { id: string; definitionId: BombType; position: Vec2; radius: number; remaining: number; duration: number };
+export type DeploymentPreview = Placement & { definitionId: DeployableId; valid: boolean; landingHeight: number; trajectory?: BombTrajectory };
 export type AimSession = { definitionId: DeployableId; direction: Vec2; strength: number; preview: DeploymentPreview | null };
 export type DeploymentState = {
   walls: RuntimeWall[];
   bombs: RuntimeBomb[];
   explosions: Explosion[];
-  inventory: Record<Team, Record<DeployableId, number>>;
+  inventory: Record<Team, Record<ResourceId, number>>;
   aim: Record<Team, Partial<Record<DeployableId, AimSession>>>;
 };
 export type PlacementContext = {
@@ -64,11 +68,13 @@ export const BOMB_THROW = {
   maximumDistance: 6,
   travelSpeed: 10,
   minimumTravelTime: 0.24,
-  trajectoryHeight: 1.8,
 } as const;
 export const BOMB_RADIUS_PHYSICS = 0.34;
+export const BOMB_TYPES = {
+  bomb: { fuse: BOMB_FUSE, blastRadius: BOMB_RADIUS, wallDamage: BOMB_DAMAGE, physicalRadius: BOMB_RADIUS_PHYSICS },
+  'mega-bomb': { fuse: 2, blastRadius: 4, wallDamage: 100, physicalRadius: 0.48 },
+} as const;
 const WALL_FOOTPRINT = { kind: 'box', ...WALL_TYPES[DEFAULT_PLAYER_WALL_TYPE].placementFootprint } as const;
-const BOMB_FOOTPRINT = { kind: 'circle', radius: BOMB_RADIUS_PHYSICS } as const;
 
 function boxInsideArena(wall: WallDefinition, arena: ArenaDefinition): boolean {
   const c = Math.cos(wall.rotation);
@@ -111,9 +117,8 @@ function wallPlacementValid(placement: Placement, context: PlacementContext): bo
   return true;
 }
 
-function bombPlacementValid(placement: Placement, context: PlacementContext): boolean {
+function bombPlacementValid(placement: Placement, context: PlacementContext, radius: number): boolean {
   const p = placement.position;
-  const radius = BOMB_FOOTPRINT.radius;
   const b = context.arena.bounds;
   if (p.x - radius < b.minX + BOUNDARY_CLEARANCE || p.x + radius > b.maxX - BOUNDARY_CLEARANCE ||
       p.z - radius < b.minZ + BOUNDARY_CLEARANCE || p.z + radius > b.maxZ - BOUNDARY_CLEARANCE) return false;
@@ -126,12 +131,12 @@ function tickBomb(entity: RuntimeEntity, { state, dt }: TickContext): boolean {
   entity.fuseRemaining -= dt;
   if (entity.fuseRemaining > 0) return true;
   state.explosions.push({
-    id: entity.id, position: { ...entity.position }, radius: BOMB_RADIUS,
+    id: entity.id, definitionId: entity.definitionId, position: { ...entity.position }, radius: entity.blastRadius,
     remaining: EXPLOSION_DURATION, duration: EXPLOSION_DURATION,
   });
   // A spatial event: nearest point on each wall footprint determines the hit.
   for (const wall of state.walls) {
-    if (circleTouchesWall(entity.position, BOMB_RADIUS, wall)) wall.hp -= BOMB_DAMAGE;
+    if (circleTouchesWall(entity.position, entity.blastRadius, wall)) wall.hp -= entity.wallDamage;
   }
   state.walls = state.walls.filter(wall => wall.hp > 0);
   return false;
@@ -144,7 +149,7 @@ export const DEPLOYABLES: Record<DeployableId, DeployableDefinition> = {
     preview: { ...WALL_FOOTPRINT, height: WALL_HEIGHT },
     footprint: WALL_FOOTPRINT,
     range: { min: 1.25, max: 2.7 },
-    inventoryCost: 1, initialInventory: 5,
+    inventoryCost: 1, initialInventory: 8,
     isValid: wallPlacementValid,
     deploy: (id, owner, placement): RuntimeWall => ({
       kind: 'wall', definitionId: 'wall', id, owner, source: 'deployed', type: DEFAULT_PLAYER_WALL_TYPE,
@@ -152,27 +157,32 @@ export const DEPLOYABLES: Record<DeployableId, DeployableDefinition> = {
       width: WALL_FOOTPRINT.width, depth: WALL_FOOTPRINT.depth, hp: WALL_TYPES[DEFAULT_PLAYER_WALL_TYPE].maxHealth,
     }),
   },
-  bomb: {
-    id: 'bomb', label: 'Bomb',
-    control: { icon: 'bomb', size: 'primary' },
-    preview: { kind: 'sphere', radius: BOMB_FOOTPRINT.radius },
-    footprint: BOMB_FOOTPRINT,
+  bomb: bombDefinition('bomb', 'Bomb', 'primary', 1, 2),
+  'mega-bomb': bombDefinition('mega-bomb', 'Mega', 'secondary', 0, 0),
+};
+
+function bombDefinition(id: BombType, label: string, size: 'primary' | 'secondary', inventoryCost: number, initialInventory: number): DeployableDefinition {
+  const config = BOMB_TYPES[id];
+  return {
+    id, label, control: { icon: 'bomb', size },
+    preview: { kind: 'sphere', radius: config.physicalRadius },
+    footprint: { kind: 'circle', radius: config.physicalRadius },
     range: { min: BOMB_THROW.minimumDistance, max: BOMB_THROW.maximumDistance },
-    inventoryCost: 1, initialInventory: 2,
-    isValid: bombPlacementValid,
-    deploy: (id, owner, placement, origin): RuntimeBomb => ({
-      kind: 'bomb', definitionId: 'bomb', id, owner,
+    inventoryCost, initialInventory,
+    isValid: (placement, context) => bombPlacementValid(placement, context, config.physicalRadius),
+    deploy: (entityId, owner, placement, origin): RuntimeBomb => ({
+      kind: 'bomb', definitionId: id, id: entityId, owner,
       origin: { ...origin }, target: { ...placement.position }, position: { ...origin }, height: 0,
-      orientation: { x: 0, y: 0, z: 0, w: 1 },
-      phase: 'flying',
+      orientation: { x: 0, y: 0, z: 0, w: 1 }, phase: 'flying',
       velocity: { x: 0, z: 0 }, verticalVelocity: 0,
       travelDuration: Math.max(BOMB_THROW.minimumTravelTime,
         Math.hypot(placement.position.x - origin.x, placement.position.z - origin.z) / BOMB_THROW.travelSpeed),
-      fuseRemaining: BOMB_FUSE, fuseDuration: BOMB_FUSE,
+      fuseRemaining: config.fuse, fuseDuration: config.fuse,
+      blastRadius: config.blastRadius, wallDamage: config.wallDamage, physicalRadius: config.physicalRadius,
     }),
     tick: tickBomb,
-  },
-};
+  };
+}
 
 export function createDeploymentState(arena: ArenaDefinition): DeploymentState {
   return {

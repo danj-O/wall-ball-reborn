@@ -71,3 +71,13 @@ test('movement touch square fills its corner and moves with its pad', () => {
   assert.ok(moved.left > corner.left);
   assert.ok(moved.top > corner.top);
 });
+
+test('two independent optional ability slots are reserved for each player', () => {
+  const layout = defaultControlLayout(844, 390);
+  for (const team of ['red', 'blue'] as const) {
+    assert.ok(layout.positions[`${team}-ability-1`]);
+    assert.ok(layout.positions[`${team}-ability-2`]);
+    assert.ok(layout.sizes[`${team}-ability-1`] < layout.sizes[`${team}-move`]);
+    assert.notDeepEqual(layout.positions[`${team}-ability-1`], layout.positions[`${team}-ability-2`]);
+  }
+});

@@ -6,7 +6,7 @@ export const CAMERA_SETTINGS = {
   pitchDegrees: 88,
   yawDegrees: 0,
   fovDegrees: 42,
-  framingPadding: 1.14,
+  framingPadding: 1.035,
   minimumDistance: 18,
   near: 0.1,
   far: 220,

@@ -17,7 +17,7 @@ test('successful wall and bomb deployment spend only their own inventory', () =>
   const wallPreview = game.updateDeployAim('red', 'wall', { x: 1, z: 0 }, 0.6);
   assert.equal(wallPreview?.valid, true);
   assert.equal(game.releaseDeployAim('red', 'wall'), 'placed');
-  assert.equal(game.deployments.inventory.red.wall, 4);
+  assert.equal(game.deployments.inventory.red.wall, DEPLOYABLES.wall.initialInventory - 1);
   assert.equal(game.deployments.inventory.red.bomb, 2);
   assert.equal(game.deployments.walls.at(-1)?.owner, 'red');
   assert.equal(game.deployments.walls.at(-1)?.hp, WALL_TYPES.wood.maxHealth);
@@ -35,7 +35,7 @@ test('relative aim returning to center cancels without spending inventory', () =
   assert.ok(game.updateDeployAim('red', 'wall', { x: 1, z: 0 }, 0.7));
   assert.equal(game.updateDeployAim('red', 'wall', { x: 0, z: 0 }, 0), null);
   assert.equal(game.releaseDeployAim('red', 'wall'), 'cancelled');
-  assert.equal(game.deployments.inventory.red.wall, 5);
+  assert.equal(game.deployments.inventory.red.wall, DEPLOYABLES.wall.initialInventory);
   assert.equal(game.deployments.walls.length, DEFAULT_ARENA.walls.length);
 });
 
@@ -140,8 +140,8 @@ test('invalid wall overlap and invalid bomb placement spend nothing', () => {
   assert.equal(game.releaseDeployAim('red', 'wall'), 'placed');
   assert.equal(preview()?.valid, false);
   assert.equal(game.releaseDeployAim('red', 'wall'), 'invalid');
-  assert.equal(game.deployments.inventory.red.wall, 4);
-  game.state.players.red.position = { x: 16, z: 0 };
+  assert.equal(game.deployments.inventory.red.wall, DEPLOYABLES.wall.initialInventory - 1);
+  game.state.players.red.position = { x: 23, z: 0 };
   game.beginDeployAim('red', 'bomb');
   assert.equal(game.updateDeployAim('red', 'bomb', { x: 1, z: 0 }, 1)?.valid, false);
   assert.equal(game.releaseDeployAim('red', 'bomb'), 'invalid');
@@ -155,10 +155,10 @@ test('wall footprints reject static walls, bases, players and arena borders', ()
     bombs: game.deployments.bombs, players: game.state.players,
   };
   for (const position of [
-    { x: -7, z: -6 }, // starting wall
-    { x: -16.4, z: 0 }, // red base
-    { x: 14.5, z: 0 }, // blue player
-    { x: 17.7, z: 4 }, // perimeter
+    { x: -5, z: -6 }, // starting stone wall row
+    { x: -23.2, z: 0 }, // red base
+    { x: 21.5, z: 0 }, // blue player
+    { x: 24.7, z: 4 }, // perimeter
   ]) {
     assert.equal(DEPLOYABLES.wall.isValid({ position, rotation: 0 }, context), false);
   }

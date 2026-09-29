@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { WALL_HEIGHT, WALL_TYPES, type ArenaDefinition, type DepotDefinition, type Team, type Vec2 } from '../game/arena.ts';
 import type { GameState } from '../game/GameMode.ts';
-import { BOMB_RADIUS, BOMB_THROW, DEPLOYABLES, type DeployableId, type DeploymentState, type RuntimeBomb, type RuntimeWall, type Explosion } from '../game/deployables.ts';
+import { DEPLOYABLES, type DeployableId, type DeploymentState, type RuntimeBomb, type RuntimeWall, type Explosion } from '../game/deployables.ts';
 import type { EconomyState, RuntimeDepot } from '../game/economy.ts';
+import { POWER_UP_CONFIG, POWER_UPS, type PowerUpPickup, type PowerUpState } from '../game/powerups.ts';
 import { CAMERA_SETTINGS, frameArena } from './camera.ts';
 
 const COLORS = { red: 0xe95750, blue: 0x4a9bf0 };
@@ -15,6 +16,8 @@ export class ArenaView {
   private readonly wallsGroup = new THREE.Group();
   private readonly depotsGroup = new THREE.Group();
   private readonly deployGroup = new THREE.Group();
+  private readonly powerRegionGroup = new THREE.Group();
+  private readonly pickupGroup = new THREE.Group();
   private readonly playerGroups: Record<Team, THREE.Group>;
   private readonly flagGroups: Record<Team, THREE.Group>;
   private readonly wallMeshes = new Map<string, THREE.Mesh>();
@@ -22,7 +25,13 @@ export class ArenaView {
   private readonly flagBaseMeshes: THREE.Mesh[] = [];
   private readonly bombGroups = new Map<string, THREE.Group>();
   private readonly explosionGroups = new Map<string, THREE.Group>();
-  private readonly previewGroups = new Map<string, { group: THREE.Group; material: THREE.MeshStandardMaterial; trajectory?: THREE.Line }>();
+  private readonly pickupMeshes = new Map<string, THREE.Group>();
+  private readonly burstMeshes = new Map<string, THREE.Group>();
+  private readonly powerRegionMeshes = new Map<string, THREE.Mesh>();
+  private readonly previewGroups = new Map<string, {
+    group: THREE.Group; material: THREE.MeshStandardMaterial; ghost: THREE.Mesh;
+    trajectory?: THREE.Line; landingRing?: THREE.Mesh; impactMarker?: THREE.Mesh;
+  }>();
   private wallSignature = '';
   private depotSignature = '';
   private selectedId: string | null = null;
@@ -63,6 +72,8 @@ export class ArenaView {
     this.scene.add(this.wallsGroup);
     this.scene.add(this.depotsGroup);
     this.scene.add(this.deployGroup);
+    this.scene.add(this.powerRegionGroup);
+    this.scene.add(this.pickupGroup);
 
     const tabletop = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), this.material(0x101923));
     tabletop.rotation.x = -Math.PI / 2;
@@ -114,6 +125,22 @@ export class ArenaView {
       group.add(this.solid(new THREE.SphereGeometry(0.035, 7, 5), eyes, side * 0.11, 1.27, 0.275));
     }
     group.add(this.solid(new THREE.BoxGeometry(0.23, 0.11, 0.065), this.material(0xf1f5f6), 0, 0.76, 0.33));
+    const speedRing = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.055, 8, 36),
+      new THREE.MeshBasicMaterial({ color: 0xffd364, transparent: true, opacity: 0.85 }));
+    speedRing.rotation.x = Math.PI / 2;
+    speedRing.position.y = 0.08;
+    speedRing.name = 'speed-effect';
+    group.add(speedRing);
+    const shield = new THREE.Mesh(new THREE.SphereGeometry(0.72, 20, 12),
+      new THREE.MeshBasicMaterial({ color: 0x80e5ed, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide }));
+    shield.position.y = 0.78;
+    shield.name = 'shield-effect';
+    group.add(shield);
+    for (const [name, color, y] of [['speed-timer', 0xffd364, 1.85], ['shield-timer', 0x80e5ed, 1.96]] as const) {
+      const bar = this.solid(new THREE.BoxGeometry(0.75, 0.07, 0.09), this.material(color), 0, y, 0);
+      bar.name = name;
+      group.add(bar);
+    }
     this.scene.add(group);
     return group;
   }
@@ -239,6 +266,19 @@ export class ArenaView {
     this.depotSignature = '';
     this.syncWalls(arena.walls, true);
     this.syncDepots(arena.depots, true);
+    this.disposeChildren(this.powerRegionGroup);
+    this.powerRegionMeshes.clear();
+    for (const region of arena.powerupSpawnAreas) {
+      const area = region.bounds;
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(area.maxX - area.minX, area.maxZ - area.minZ),
+        new THREE.MeshBasicMaterial({ color: region.id === selectedId ? 0xf4d178 : 0xc7a7eb,
+          transparent: true, opacity: region.id === selectedId ? 0.3 : 0.15, side: THREE.DoubleSide, depthWrite: false }));
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set((area.minX + area.maxX) / 2, 0.035, (area.minZ + area.maxZ) / 2);
+      mesh.userData.powerRegionId = region.id;
+      this.powerRegionGroup.add(mesh);
+      this.powerRegionMeshes.set(region.id, mesh);
+    }
   }
 
   private syncWalls(walls: readonly import('../game/arena.ts').WallDefinition[], editing: boolean): void {
@@ -267,11 +307,22 @@ export class ArenaView {
       mesh.userData.wallId = wall.id;
       this.wallsGroup.add(mesh);
       this.wallMeshes.set(wall.id, mesh);
-      if (runtime && runtime.hp < material.maxHealth) {
-        const bar = this.solid(new THREE.BoxGeometry(wall.width * 0.7 * health, 0.035, 0.08),
-          this.material(health > 0.34 ? 0xf4cd74 : 0xff715d), wall.position.x, 1.39, wall.position.z);
-        bar.rotation.y = wall.rotation;
-        this.wallsGroup.add(bar);
+      if (runtime) {
+        const barLength = wall.width * 0.8;
+        const track = new THREE.Group();
+        track.position.set(wall.position.x, WALL_HEIGHT + 0.055, wall.position.z);
+        track.rotation.y = wall.rotation;
+        const background = new THREE.Mesh(new THREE.BoxGeometry(barLength + 0.12, 0.065, 0.29),
+          new THREE.MeshBasicMaterial({ color: 0x13212a }));
+        background.userData.wallId = wall.id;
+        track.add(background);
+        const fillWidth = barLength * health;
+        const fill = new THREE.Mesh(new THREE.BoxGeometry(fillWidth, 0.035, 0.19),
+          new THREE.MeshBasicMaterial({ color: health > 0.75 ? 0x7ce3a3 : health > 0.35 ? 0xffc763 : 0xff6658 }));
+        fill.position.set(-barLength / 2 + fillWidth / 2, 0.052, 0);
+        fill.userData.wallId = wall.id;
+        track.add(fill);
+        this.wallsGroup.add(track);
       }
     }
   }
@@ -342,23 +393,24 @@ export class ArenaView {
     const group = new THREE.Group();
     const projectile = new THREE.Group();
     projectile.name = 'projectile';
-    const dark = this.material(0x202b34, 0.2);
-    const teamColor = this.material(bomb.owner === 'red' ? COLORS.red : COLORS.blue);
-    projectile.add(this.solid(new THREE.SphereGeometry(0.34, 16, 12), dark, 0, 0, 0));
-    const band = this.solid(new THREE.TorusGeometry(0.29, 0.045, 8, 24), teamColor, 0, 0, 0);
+    const mega = bomb.definitionId === 'mega-bomb';
+    const dark = this.material(mega ? 0x6b327e : 0x202b34, 0.2);
+    const teamColor = this.material(mega ? 0xf5a7f1 : bomb.owner === 'red' ? COLORS.red : COLORS.blue);
+    projectile.add(this.solid(new THREE.SphereGeometry(bomb.physicalRadius, 16, 12), dark, 0, 0, 0));
+    const band = this.solid(new THREE.TorusGeometry(bomb.physicalRadius * 0.85, 0.045, 8, 24), teamColor, 0, 0, 0);
     band.rotation.x = Math.PI / 2;
     projectile.add(band);
-    projectile.add(this.solid(new THREE.CylinderGeometry(0.045, 0.045, 0.18, 8), this.material(0xe5e7d6), 0, 0.38, 0));
+    projectile.add(this.solid(new THREE.CylinderGeometry(0.045, 0.045, 0.18, 8), this.material(0xe5e7d6), 0, bomb.physicalRadius + 0.04, 0));
     const spark = this.material(0xffb54b);
     spark.emissive.setHex(0xff8a17);
     spark.emissiveIntensity = 1.5;
-    const ember = this.solid(new THREE.SphereGeometry(0.09, 10, 8), spark, 0, 0.5, 0);
+    const ember = this.solid(new THREE.SphereGeometry(0.09, 10, 8), spark, 0, bomb.physicalRadius + 0.16, 0);
     ember.name = 'ember';
     projectile.add(ember);
     group.add(projectile);
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(BOMB_RADIUS - 0.06, BOMB_RADIUS + 0.06, 64),
-      new THREE.MeshBasicMaterial({ color: 0xffb15c, transparent: true, opacity: 0.56, side: THREE.DoubleSide, depthWrite: false }),
+      new THREE.RingGeometry(bomb.blastRadius - 0.06, bomb.blastRadius + 0.06, 64),
+      new THREE.MeshBasicMaterial({ color: mega ? 0xf5a7f1 : 0xffb15c, transparent: true, opacity: 0.56, side: THREE.DoubleSide, depthWrite: false }),
     );
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.025;
@@ -373,7 +425,7 @@ export class ArenaView {
     const group = new THREE.Group();
     const shell = this.solid(
       new THREE.SphereGeometry(1, 20, 14),
-      new THREE.MeshBasicMaterial({ color: 0xffa234, transparent: true, opacity: 0.36, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: explosion.definitionId === 'mega-bomb' ? 0xea72f0 : 0xffa234, transparent: true, opacity: 0.36, depthWrite: false }),
       0, 0.45, 0,
     );
     shell.name = 'shell';
@@ -410,7 +462,7 @@ export class ArenaView {
       if (!group) { group = this.makeBomb(bomb); this.bombGroups.set(bomb.id, group); }
       const projectile = group.getObjectByName('projectile');
       group.position.set(bomb.position.x, 0, bomb.position.z);
-      projectile?.position.set(0, bomb.height + 0.34, 0);
+      projectile?.position.set(0, bomb.height + bomb.physicalRadius, 0);
       projectile?.quaternion.set(bomb.orientation.x, bomb.orientation.y, bomb.orientation.z, bomb.orientation.w);
       const ring = group.getObjectByName('danger-ring');
       if (ring) ring.position.y = 0.025;
@@ -449,66 +501,164 @@ export class ArenaView {
           continue;
         }
         if (!current) {
-        const shape = DEPLOYABLES[id].preview;
-        const material = new THREE.MeshStandardMaterial({
-          color: 0x63e4a2, emissive: 0x163c2a, transparent: true, opacity: 0.45,
-          roughness: 0.5, depthWrite: false,
-        });
-        const group = new THREE.Group();
-        const geometry = shape.kind === 'box'
-          ? new THREE.BoxGeometry(shape.width, shape.height, shape.depth)
-          : new THREE.SphereGeometry(shape.radius, 16, 12);
-        const ghost = this.solid(geometry, material, 0, shape.kind === 'box' ? shape.height / 2 : shape.radius, 0);
-        ghost.castShadow = false;
-        group.add(ghost);
-        let trajectory: THREE.Line | undefined;
-        if (id === 'bomb') {
-          trajectory = new THREE.Line(new THREE.BufferGeometry(),
-            new THREE.LineBasicMaterial({ color: 0xf5dc9a, transparent: true, opacity: 0.8, depthTest: false }));
-          group.add(trajectory);
-          const marker = new THREE.Mesh(new THREE.RingGeometry(0.42, 0.5, 32),
-            new THREE.MeshBasicMaterial({ color: 0xf5dc9a, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }));
-          marker.rotation.x = -Math.PI / 2;
-          marker.position.y = 0.04;
-          group.add(marker);
-        }
-        this.deployGroup.add(group);
-        current = { group, material, trajectory };
-        this.previewGroups.set(key, current);
+          const shape = DEPLOYABLES[id].preview;
+          const material = new THREE.MeshStandardMaterial({
+            color: 0x63e4a2, emissive: 0x163c2a, transparent: true, opacity: 0.45,
+            roughness: 0.5, depthWrite: false,
+          });
+          const group = new THREE.Group();
+          const geometry = shape.kind === 'box'
+            ? new THREE.BoxGeometry(shape.width, shape.height, shape.depth)
+            : new THREE.SphereGeometry(shape.radius, 16, 12);
+          const ghost = this.solid(geometry, material, 0, shape.kind === 'box' ? shape.height / 2 : shape.radius, 0);
+          ghost.castShadow = false;
+          group.add(ghost);
+          let trajectory: THREE.Line | undefined;
+          let landingRing: THREE.Mesh | undefined;
+          let impactMarker: THREE.Mesh | undefined;
+          if (id !== 'wall') {
+            trajectory = new THREE.Line(new THREE.BufferGeometry(),
+              new THREE.LineBasicMaterial({ color: id === 'mega-bomb' ? 0xf5a7f1 : 0xf5dc9a, transparent: true, opacity: 0.92, depthTest: false }));
+            group.add(trajectory);
+            landingRing = new THREE.Mesh(new THREE.RingGeometry(id === 'mega-bomb' ? 0.62 : 0.42, id === 'mega-bomb' ? 0.72 : 0.5, 32),
+              new THREE.MeshBasicMaterial({ color: id === 'mega-bomb' ? 0xf5a7f1 : 0xf5dc9a, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }));
+            landingRing.rotation.x = -Math.PI / 2;
+            landingRing.position.y = 0.04;
+            group.add(landingRing);
+            impactMarker = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2, 1),
+              new THREE.MeshBasicMaterial({ color: 0xff7047, depthTest: false }));
+            impactMarker.position.y = shape.kind === 'sphere' ? shape.radius : 0;
+            impactMarker.visible = false;
+            group.add(impactMarker);
+          }
+          this.deployGroup.add(group);
+          current = { group, material, ghost, trajectory, landingRing, impactMarker };
+          this.previewGroups.set(key, current);
         }
         current.group.visible = true;
-        current.group.position.set(preview.position.x, preview.landingHeight, preview.position.z);
+        const impact = preview.trajectory?.impact;
+        const blocked = impact !== undefined && impact.kind !== 'floor';
+        const radius = DEPLOYABLES[id].preview.kind === 'sphere' ? DEPLOYABLES[id].preview.radius : 0;
+        current.group.position.set(
+          impact?.point.x ?? preview.position.x,
+          impact ? impact.point.y - radius : preview.landingHeight,
+          impact?.point.z ?? preview.position.z,
+        );
         current.group.rotation.y = id === 'wall' ? preview.rotation : 0;
-        current.material.color.setHex(preview.valid ? 0x6beca4 : 0xff6659);
-        current.material.emissive.setHex(preview.valid ? 0x164a2d : 0x6a1717);
-        if (current.trajectory) {
-          const origin = state.players[team].position;
-          const points = Array.from({ length: 17 }, (_, index) => {
-            const t = index / 16;
-            return new THREE.Vector3(
-              (origin.x - preview.position.x) * (1 - t),
-              0.45 - preview.landingHeight * (1 - t) + 4 * BOMB_THROW.trajectoryHeight * t * (1 - t),
-              (origin.z - preview.position.z) * (1 - t),
-            );
-          });
+        current.material.color.setHex(preview.valid ? blocked ? 0xff7047 : id === 'mega-bomb' ? 0xf5a7f1 : 0x6beca4 : 0xff6659);
+        current.material.emissive.setHex(preview.valid && !blocked ? 0x164a2d : 0x6a1717);
+        current.ghost.visible = !blocked;
+        if (current.landingRing) current.landingRing.visible = !blocked;
+        if (current.impactMarker) current.impactMarker.visible = blocked;
+        if (current.trajectory && preview.trajectory) {
+          const points = preview.trajectory.points.map(point => new THREE.Vector3(
+            point.x - current!.group.position.x,
+            point.y - current!.group.position.y,
+            point.z - current!.group.position.z,
+          ));
           current.trajectory.geometry.dispose();
           current.trajectory.geometry = new THREE.BufferGeometry().setFromPoints(points);
-          (current.trajectory.material as THREE.LineBasicMaterial).color.setHex(preview.valid ? 0xf5dc9a : 0xff6659);
+          (current.trajectory.material as THREE.LineBasicMaterial).color.setHex(
+            !preview.valid ? 0xff6659 : blocked ? 0xff7047 : id === 'mega-bomb' ? 0xf5a7f1 : 0xf5dc9a,
+          );
         }
       }
     }
   }
 
-  sync(state: GameState, arena: ArenaDefinition, editing: boolean, deployments: DeploymentState, economy: EconomyState): void {
+  private makePickup(pickup: PowerUpPickup): THREE.Group {
+    const definition = POWER_UPS[pickup.definitionId];
+    const group = new THREE.Group();
+    const geometry = definition.presentation.shape === 'bolt' ? new THREE.OctahedronGeometry(0.42)
+      : definition.presentation.shape === 'bomb' ? new THREE.DodecahedronGeometry(0.48)
+        : new THREE.IcosahedronGeometry(0.43, 1);
+    const core = this.solid(geometry, new THREE.MeshStandardMaterial({ color: definition.presentation.color,
+      emissive: definition.presentation.color, emissiveIntensity: 0.8, metalness: 0.25, roughness: 0.35 }), 0, 0.8, 0);
+    core.name = 'pickup-core';
+    group.add(core);
+    const halo = new THREE.Mesh(new THREE.RingGeometry(definition.pickupRadius - 0.07, definition.pickupRadius, 40),
+      new THREE.MeshBasicMaterial({ color: definition.presentation.color, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }));
+    halo.rotation.x = -Math.PI / 2;
+    halo.position.y = 0.045;
+    halo.name = 'pickup-halo';
+    group.add(halo);
+    group.add(new THREE.PointLight(definition.presentation.color, 1.1, 3));
+    group.position.set(pickup.position.x, 0, pickup.position.z);
+    this.pickupGroup.add(group);
+    return group;
+  }
+
+  private syncPowerUps(powerUps: PowerUpState, editing: boolean): void {
+    this.pickupGroup.visible = !editing;
+    const active = new Set(powerUps.active.map(pickup => pickup.id));
+    for (const [id, group] of this.pickupMeshes) if (!active.has(id)) {
+      this.disposeChildren(group); this.pickupGroup.remove(group); this.pickupMeshes.delete(id);
+    }
+    for (const pickup of powerUps.active) {
+      let group = this.pickupMeshes.get(pickup.id);
+      if (!group) { group = this.makePickup(pickup); this.pickupMeshes.set(pickup.id, group); }
+      group.scale.setScalar(0.35 + 0.65 * Math.min(1, pickup.age / 0.4));
+      const core = group.getObjectByName('pickup-core');
+      if (core) {
+        core.position.y = 0.75 + 0.12 * Math.sin(pickup.age * 5);
+        core.rotation.y = pickup.age * 1.8;
+        core.rotation.z = pickup.age * 0.6;
+      }
+      const halo = group.getObjectByName('pickup-halo');
+      if (halo) halo.scale.setScalar(1 + 0.06 * Math.sin(pickup.age * 7));
+    }
+    const bursts = new Set(powerUps.bursts.map(burst => burst.id));
+    for (const [id, group] of this.burstMeshes) if (!bursts.has(id)) {
+      this.disposeChildren(group); this.pickupGroup.remove(group); this.burstMeshes.delete(id);
+    }
+    for (const burst of powerUps.bursts) {
+      let group = this.burstMeshes.get(burst.id);
+      if (!group) {
+        group = new THREE.Group();
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.85, 1, 40),
+          new THREE.MeshBasicMaterial({ color: POWER_UPS[burst.definitionId].presentation.color,
+            transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false }));
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.y = 0.08;
+        group.add(ring);
+        group.position.set(burst.position.x, 0, burst.position.z);
+        this.pickupGroup.add(group);
+        this.burstMeshes.set(burst.id, group);
+      }
+      group.scale.setScalar(1 + (0.55 - burst.remaining) * 2);
+      ((group.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = burst.remaining / 0.55 * 0.8;
+    }
+  }
+
+  sync(state: GameState, arena: ArenaDefinition, editing: boolean, deployments: DeploymentState, economy: EconomyState, powerUps: PowerUpState): void {
+    this.powerRegionGroup.visible = editing;
     this.syncWalls(editing ? arena.walls : deployments.walls, editing);
     this.syncDepots(editing ? arena.depots : economy.depots, editing);
     this.syncDeployments(deployments, editing, state);
+    this.syncPowerUps(powerUps, editing);
     for (const team of ['red', 'blue'] as const) {
       const player = this.playerGroups[team];
       const data = state.players[team];
       player.visible = !editing;
       player.position.set(data.position.x, 0, data.position.z);
       player.rotation.y = data.facing;
+      const speed = player.getObjectByName('speed-effect');
+      if (speed) {
+        speed.visible = powerUps.players[team].speedRemaining > 0;
+        speed.scale.setScalar(0.6 + 0.4 * powerUps.players[team].speedRemaining / POWER_UP_CONFIG.speedSeconds);
+      }
+      const shield = player.getObjectByName('shield-effect');
+      if (shield) {
+        shield.visible = powerUps.players[team].shieldRemaining > 0;
+        shield.scale.setScalar(0.7 + 0.3 * powerUps.players[team].shieldRemaining / POWER_UP_CONFIG.shieldSeconds);
+      }
+      for (const [name, remaining, duration] of [
+        ['speed-timer', powerUps.players[team].speedRemaining, POWER_UP_CONFIG.speedSeconds],
+        ['shield-timer', powerUps.players[team].shieldRemaining, POWER_UP_CONFIG.shieldSeconds],
+      ] as const) {
+        const bar = player.getObjectByName(name);
+        if (bar) { bar.visible = remaining > 0; bar.scale.x = remaining / duration; }
+      }
 
       const flag = this.flagGroups[team];
       const carrier = state.flags[team].carrier;
@@ -530,8 +680,9 @@ export class ArenaView {
     const hit = this.raycaster.intersectObjects([
       ...this.wallMeshes.values(), ...this.depotMeshes.values(), ...this.flagBaseMeshes,
       this.flagGroups.red, this.flagGroups.blue,
+      ...this.powerRegionMeshes.values(),
     ], true)[0];
-    return hit ? String(hit.object.userData.wallId ?? hit.object.userData.depotId ?? hit.object.userData.flagId) : null;
+    return hit ? String(hit.object.userData.wallId ?? hit.object.userData.depotId ?? hit.object.userData.flagId ?? hit.object.userData.powerRegionId) : null;
   }
 
   groundPoint(clientX: number, clientY: number): Vec2 | null {

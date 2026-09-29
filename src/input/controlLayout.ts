@@ -1,4 +1,5 @@
-export type ControlId = 'red-move' | 'red-wall' | 'red-bomb' | 'blue-move' | 'blue-wall' | 'blue-bomb';
+export type AbilitySlot = 'ability-1' | 'ability-2';
+export type ControlId = `${'red' | 'blue'}-${'move' | 'wall' | 'bomb' | AbilitySlot}`;
 export type NormalizedPoint = { x: number; y: number };
 export type ControlLayout = {
   positions: Record<ControlId, NormalizedPoint>;
@@ -7,7 +8,8 @@ export type ControlLayout = {
 };
 
 export const CONTROL_IDS: readonly ControlId[] = [
-  'red-move', 'red-wall', 'red-bomb', 'blue-move', 'blue-wall', 'blue-bomb',
+  'red-move', 'red-wall', 'red-bomb', 'red-ability-1', 'red-ability-2',
+  'blue-move', 'blue-wall', 'blue-bomb', 'blue-ability-1', 'blue-ability-2',
 ];
 export const CONTROL_SIZE_RANGE = { min: 56, max: 220 } as const;
 export const FLOAT_RADIUS_RANGE = { min: 28, max: 160 } as const;
@@ -28,16 +30,24 @@ export function defaultControlLayout(width: number, height: number): ControlLayo
   const point = (x: number, y: number, size: number) => clampControlPosition({ x: x / width, y: y / height }, size, width, height);
   return {
     sizes: { 'red-move': moveSize, 'red-wall': actionSize, 'red-bomb': actionSize,
-      'blue-move': moveSize, 'blue-wall': actionSize, 'blue-bomb': actionSize },
+      'red-ability-1': 62, 'red-ability-2': 62,
+      'blue-move': moveSize, 'blue-wall': actionSize, 'blue-bomb': actionSize,
+      'blue-ability-1': 62, 'blue-ability-2': 62 },
     floatRadii: { 'red-move': 70, 'red-wall': 52, 'red-bomb': 52,
-      'blue-move': 70, 'blue-wall': 52, 'blue-bomb': 52 },
+      'red-ability-1': 48, 'red-ability-2': 48,
+      'blue-move': 70, 'blue-wall': 52, 'blue-bomb': 52,
+      'blue-ability-1': 48, 'blue-ability-2': 48 },
     positions: {
       'red-move': point(moveInset, moveInset, moveSize),
       'red-wall': point(actionInset, height - actionInset, actionSize),
       'red-bomb': point(actionInset + gap, height - actionInset, actionSize),
+      'red-ability-1': point(actionInset + gap / 2, height - actionInset - 74, 62),
+      'red-ability-2': point(actionInset + gap * 1.35, height - actionInset - 74, 62),
       'blue-move': point(width - moveInset, height - moveInset, moveSize),
       'blue-wall': point(width - actionInset, actionInset, actionSize),
       'blue-bomb': point(width - actionInset - gap, actionInset, actionSize),
+      'blue-ability-1': point(width - actionInset - gap / 2, actionInset + 74, 62),
+      'blue-ability-2': point(width - actionInset - gap * 1.35, actionInset + 74, 62),
     },
   };
 }

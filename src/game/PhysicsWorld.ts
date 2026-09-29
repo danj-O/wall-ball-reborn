@@ -1,11 +1,12 @@
 import { Body, Box, ContactMaterial, Material, Plane, Sphere, Vec3, World } from 'cannon-es';
 import { WALL_HEIGHT, type ArenaDefinition, type Team, type Vec2 } from './arena.ts';
 import type { GameState } from './GameMode.ts';
-import { BOMB_RADIUS_PHYSICS, type DeploymentState, type RuntimeBomb, type RuntimeWall } from './deployables.ts';
+import { type DeploymentState, type RuntimeBomb, type RuntimeWall } from './deployables.ts';
+import { BOMB_FLIGHT, bombLaunch } from './trajectory.ts';
 
 /** The simulation owns rigid bodies. Three.js only consumes the plain positions copied out here. */
 export class PhysicsWorld {
-  readonly world = new World({ gravity: new Vec3(0, -18, 0) });
+  readonly world = new World({ gravity: new Vec3(0, -BOMB_FLIGHT.gravity, 0) });
   private readonly players: Record<Team, Body>;
   private readonly walls = new Map<string, Body>();
   private readonly bombs = new Map<string, Body>();
@@ -70,17 +71,12 @@ export class PhysicsWorld {
   }
 
   addBomb(bomb: RuntimeBomb): void {
-    const dx = bomb.target.x - bomb.origin.x;
-    const dz = bomb.target.z - bomb.origin.z;
-    const distance = Math.hypot(dx, dz);
-    const travelTime = Math.max(0.55, Math.min(0.95, distance / 8));
-    const offset = distance > 0 ? 0.55 / distance : 0;
-    const startY = 1.1;
-    const body = new Body({ mass: 1, material: this.bombMaterial, shape: new Sphere(BOMB_RADIUS_PHYSICS),
-      position: new Vec3(bomb.origin.x + dx * offset, startY, bomb.origin.z + dz * offset),
-      linearDamping: 0.14, angularDamping: 0.35, sleepSpeedLimit: 0.08, sleepTimeLimit: 0.6,
+    const launch = bombLaunch(bomb.origin, bomb.target, bomb.physicalRadius);
+    const body = new Body({ mass: bomb.definitionId === 'mega-bomb' ? 1.7 : 1, material: this.bombMaterial, shape: new Sphere(bomb.physicalRadius),
+      position: new Vec3(launch.position.x, launch.position.y, launch.position.z),
+      linearDamping: BOMB_FLIGHT.linearDamping, angularDamping: 0.35, sleepSpeedLimit: 0.08, sleepTimeLimit: 0.6,
     });
-    body.velocity.set(dx / travelTime, (BOMB_RADIUS_PHYSICS - startY + 9 * travelTime * travelTime) / travelTime, dz / travelTime);
+    body.velocity.set(launch.velocity.x, launch.velocity.y, launch.velocity.z);
     body.addEventListener('collide', () => { bomb.phase = 'lit'; });
     this.world.addBody(body);
     this.bombs.set(bomb.id, body);
@@ -94,8 +90,16 @@ export class PhysicsWorld {
 
   getBombBody(id: string): Body | undefined { return this.bombs.get(id); }
   getPlayerBody(team: Team): Body { return this.players[team]; }
+  capPlayerSpeed(team: Team, maximum: number): void {
+    const velocity = this.players[team].velocity;
+    const horizontal = Math.hypot(velocity.x, velocity.z);
+    if (horizontal > maximum) {
+      velocity.x *= maximum / horizontal;
+      velocity.z *= maximum / horizontal;
+    }
+  }
 
-  step(dt: number, state: GameState, deployments: DeploymentState, input: Record<Team, Vec2>, speed: number, acceleration: number, braking: number): void {
+  step(dt: number, state: GameState, deployments: DeploymentState, input: Record<Team, Vec2>, speed: Record<Team, number>, acceleration: number, braking: number): void {
     this.syncWalls(deployments.walls);
     for (const team of ['red', 'blue'] as const) {
       const body = this.players[team];
@@ -109,8 +113,8 @@ export class PhysicsWorld {
       }
       const raw = input[team];
       const length = Math.hypot(raw.x, raw.z);
-      const targetX = raw.x / Math.max(1, length) * speed;
-      const targetZ = raw.z / Math.max(1, length) * speed;
+      const targetX = raw.x / Math.max(1, length) * speed[team];
+      const targetZ = raw.z / Math.max(1, length) * speed[team];
       const differenceX = targetX - body.velocity.x;
       const differenceZ = targetZ - body.velocity.z;
       const distance = Math.hypot(differenceX, differenceZ);
@@ -136,7 +140,7 @@ export class PhysicsWorld {
 
   private copyBomb(bomb: RuntimeBomb, body: Body): void {
     bomb.position = { x: body.position.x, z: body.position.z };
-    bomb.height = body.position.y - BOMB_RADIUS_PHYSICS;
+    bomb.height = body.position.y - bomb.physicalRadius;
     bomb.velocity = { x: body.velocity.x, z: body.velocity.z };
     bomb.verticalVelocity = body.velocity.y;
     bomb.orientation = { x: body.quaternion.x, y: body.quaternion.y, z: body.quaternion.z, w: body.quaternion.w };

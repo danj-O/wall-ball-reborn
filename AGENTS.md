@@ -33,6 +33,11 @@ quick deterministic check. On a transient service error, retry at most once
 when the judgment would materially help; otherwise use deterministic tools and
 Codex reasoning. On authentication failure, stop TypeSafe calls and report it.
 
+For opt-in development reviews, use the Node-only layer in `tools/jev/` as
+described in `JEV_WORKFLOW.md`. It batches focused semantic checks, requires
+deterministic gates for requirement verification, and records metadata only.
+Do not invoke it automatically for every task or build.
+
 Codex remains responsible for architecture, implementation, program tracing,
 open-ended game design, security-sensitive decisions, and final verification.
 TypeSafe scoring may surface tradeoffs, but Codex makes the decision.

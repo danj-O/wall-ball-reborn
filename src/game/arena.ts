@@ -8,7 +8,7 @@ export type DepotType = 'wall' | 'bomb';
 export type WallDefinition = { id: string; type: WallType; position: Vec2; width: number; depth: number; rotation: number };
 export type DepotDefinition = { id: string; type: DepotType; position: Vec2; radius: number; capacity: number };
 
-export const ARENA_SIZE = { halfWidth: 18, halfDepth: 11, contestedHalfWidth: 5.5 } as const;
+export const ARENA_SIZE = { halfWidth: 25, halfDepth: 13, contestedHalfWidth: 3.5 } as const;
 export const WALL_TYPES = {
   wood: { label: 'Wood', maxHealth: 100, appearance: { side: 0x92694c, top: 0xc49b6d }, placementFootprint: { width: 2.25, depth: 0.5 } },
   stone: { label: 'Stone', maxHealth: 200, appearance: { side: 0x788b95, top: 0xb3c1c4 }, placementFootprint: { width: 2.4, depth: 0.8 } },
@@ -23,7 +23,7 @@ export interface ArenaDefinition {
   playerSpawns: Record<Team, Vec2>;
   flagPositions: Record<Team, Vec2>;
   territories: Record<Territory, RectRegion[]>;
-  powerupSpawnAreas: RectRegion[]; // Future random locations; no power-ups yet.
+  powerupSpawnAreas: RectRegion[];
   walls: WallDefinition[];
   depots: DepotDefinition[];
 }
@@ -39,20 +39,32 @@ export function defaultTerritories(bounds: ArenaBounds): ArenaDefinition['territ
 }
 
 const defaultBounds: ArenaBounds = { minX: -ARENA_SIZE.halfWidth, maxX: ARENA_SIZE.halfWidth, minZ: -ARENA_SIZE.halfDepth, maxZ: ARENA_SIZE.halfDepth };
+function entryWallRow(team: Team, type: WallType, x: number, count: number, gap: number): WallDefinition[] {
+  const { width, depth } = WALL_TYPES[type].placementFootprint;
+  const length = count * width + (count - 1) * gap;
+  return Array.from({ length: count }, (_, index) => ({
+    id: `${team}-${type}-gate-${index + 1}`, type,
+    position: { x, z: -length / 2 + width / 2 + index * (width + gap) },
+    width, depth, rotation: Math.PI / 2,
+  }));
+}
+const defaultEntryWalls: WallDefinition[] = [
+  ...entryWallRow('red', 'stone', -5, 10, 0.16),
+  ...entryWallRow('red', 'wood', -3.85, 11, 0.07),
+  ...entryWallRow('blue', 'wood', 3.85, 11, 0.07),
+  ...entryWallRow('blue', 'stone', 5, 10, 0.16),
+];
 export const DEFAULT_ARENA: ArenaDefinition = {
   bounds: defaultBounds,
-  playerSpawns: { red: { x: -14.5, z: 0 }, blue: { x: 14.5, z: 0 } },
-  flagPositions: { red: { x: -16.4, z: 0 }, blue: { x: 16.4, z: 0 } },
+  playerSpawns: { red: { x: -21.5, z: 0 }, blue: { x: 21.5, z: 0 } },
+  flagPositions: { red: { x: -23.2, z: 0 }, blue: { x: 23.2, z: 0 } },
   territories: defaultTerritories(defaultBounds),
-  powerupSpawnAreas: [{ id: 'central-opportunities', bounds: { minX: -4.5, maxX: 4.5, minZ: -9, maxZ: 9 } }],
+  powerupSpawnAreas: [{ id: 'central-opportunities', bounds: { minX: -2.5, maxX: 2.5, minZ: -8, maxZ: 8 } }],
   walls: [
-    { id: 'north-west', type: 'stone', position: { x: -7, z: -6 }, width: 3, depth: 0.8, rotation: 0 },
-    { id: 'south-west', type: 'stone', position: { x: -7, z: 6 }, width: 3, depth: 0.8, rotation: 0 },
-    { id: 'north-east', type: 'stone', position: { x: 7, z: -6 }, width: 3, depth: 0.8, rotation: 0 },
-    { id: 'south-east', type: 'stone', position: { x: 7, z: 6 }, width: 3, depth: 0.8, rotation: 0 },
+    ...defaultEntryWalls,
     { id: 'center', type: 'stone', position: { x: 0, z: 0 }, width: 0.8, depth: 3.2, rotation: 0 },
-    { id: 'red-cover', type: 'wood', position: { x: -12, z: 3.5 }, width: 2.25, depth: 0.5, rotation: 0 },
-    { id: 'blue-cover', type: 'wood', position: { x: 12, z: -3.5 }, width: 2.25, depth: 0.5, rotation: 0 },
+    { id: 'red-cover', type: 'wood', position: { x: -18.5, z: 3.5 }, width: 2.25, depth: 0.5, rotation: 0 },
+    { id: 'blue-cover', type: 'wood', position: { x: 18.5, z: -3.5 }, width: 2.25, depth: 0.5, rotation: 0 },
   ],
   depots: [
     { id: 'wall-depot', type: 'wall', position: { x: 0, z: -6.7 }, radius: 1.7, capacity: DEFAULT_DEPOT_CAPACITY },
@@ -61,17 +73,20 @@ export const DEFAULT_ARENA: ArenaDefinition = {
 };
 
 export function cloneArena(arena: ArenaDefinition): ArenaDefinition { return structuredClone(arena); }
-export function simpleArena(): ArenaDefinition {
-  const arena = cloneArena(DEFAULT_ARENA);
-  arena.walls = [{ id: 'center', type: 'stone', position: { x: 0, z: 0 }, width: 0.8, depth: 6, rotation: 0 }];
-  arena.depots = [];
-  return arena;
-}
-export function nextArenaObjectId(arena: ArenaDefinition, kind: 'wall' | 'depot'): string {
-  const used = new Set([...arena.walls, ...arena.depots].map(object => object.id));
+export function nextArenaObjectId(arena: ArenaDefinition, kind: 'wall' | 'depot' | 'power-region'): string {
+  const used = new Set([...arena.walls, ...arena.depots, ...arena.powerupSpawnAreas].map(object => object.id));
   let number = 1;
   while (used.has(`${kind}-custom-${number}`)) number++;
   return `${kind}-custom-${number}`;
+}
+export function powerUpRegionFitsArena(region: RectRegion, arena: ArenaDefinition): boolean {
+  const b = region.bounds;
+  const contested = arena.territories.contested;
+  return b.maxX - b.minX >= 1.5 && b.maxZ - b.minZ >= 1.5 &&
+    b.minX >= arena.bounds.minX + 0.5 && b.maxX <= arena.bounds.maxX - 0.5 &&
+    b.minZ >= arena.bounds.minZ + 0.5 && b.maxZ <= arena.bounds.maxZ - 0.5 &&
+    contested.some(area => b.minX >= area.bounds.minX && b.maxX <= area.bounds.maxX &&
+      b.minZ >= area.bounds.minZ && b.maxZ <= area.bounds.maxZ);
 }
 export function pointInRegion(point: Vec2, region: RectRegion): boolean {
   const b = region.bounds;

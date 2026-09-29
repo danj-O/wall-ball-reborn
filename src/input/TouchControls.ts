@@ -2,7 +2,7 @@ import type { Team, Vec2 } from '../game/arena.ts';
 import type { DeployableId } from '../game/deployables.ts';
 import {
   defaultControlLayout, movementZoneRect, normalizeControlLayout,
-  type ControlId, type ControlLayout,
+  type AbilitySlot, type ControlId, type ControlLayout,
 } from './controlLayout.ts';
 
 export type ActionSlot = {
@@ -10,6 +10,7 @@ export type ActionSlot = {
   label: string;
   icon: string;
   size: 'primary' | 'secondary';
+  layoutSlot?: AbilitySlot;
 };
 
 // Both players drag in the direction they want to move on the shared screen.
@@ -139,15 +140,24 @@ export class TouchControls {
   }
 
   setActionSlots(team: Team, slots: readonly ActionSlot[]): void {
-    for (const session of [...this.pointers.values()]) {
-      if (session.team === team && session.kind === 'action') this.end(session.pointerId, true);
+    const visible = slots.slice(0, 4); // Two permanent actions plus up to two acquired abilities.
+    const wanted = new Set(visible.map(slot => slot.id));
+    const existing = [...this.root.querySelectorAll<HTMLElement>(`.action-pad[data-team="${team}"]`)];
+    for (const pad of existing) {
+      if (wanted.has(pad.dataset.item as DeployableId)) continue;
+      for (const session of [...this.pointers.values()]) if (session.pad === pad) this.end(session.pointerId, true);
+      pad.remove();
     }
-    for (const pad of this.root.querySelectorAll<HTMLElement>(`.action-pad[data-team="${team}"]`)) pad.remove();
-    for (const slot of slots) this.makePad(team, 'action', slot.id, slot.label, slot.icon);
+    for (const slot of visible) {
+      if (!this.root.querySelector(`.action-pad[data-team="${team}"][data-item="${slot.id}"]`)) {
+        this.makePad(team, 'action', slot.id, slot.label, slot.icon, slot.layoutSlot);
+      }
+    }
+    if (this.customizing) this.selectControl(this.selectedControl);
     this.applyLayout();
   }
 
-  setInventory(team: Team, inventory: Record<DeployableId, number>): void {
+  setInventory(team: Team, inventory: Partial<Record<DeployableId, number>>): void {
     for (const pad of this.root.querySelectorAll<HTMLElement>(`.action-pad[data-team="${team}"]`)) {
       const id = pad.dataset.item as DeployableId;
       const count = inventory[id] ?? 0;
@@ -161,8 +171,8 @@ export class TouchControls {
     for (const session of [...this.pointers.values()]) this.end(session.pointerId, true);
   }
 
-  private controlId(team: Team, kind: 'move' | 'action', itemId?: DeployableId): ControlId {
-    return `${team}-${kind === 'move' ? 'move' : itemId}` as ControlId;
+  private controlId(team: Team, kind: 'move' | 'action', itemId?: DeployableId, layoutSlot?: AbilitySlot): ControlId {
+    return `${team}-${kind === 'move' ? 'move' : layoutSlot ?? itemId}` as ControlId;
   }
 
   private selectControl(id: ControlId): void {
@@ -186,12 +196,12 @@ export class TouchControls {
     this.bindPointerTarget(zone, () => this.root.querySelector<HTMLElement>(`.move-pad[data-team="${team}"]`));
   }
 
-  private makePad(team: Team, kind: 'move' | 'action', itemId: DeployableId | undefined, label: string, icon: string): HTMLElement {
+  private makePad(team: Team, kind: 'move' | 'action', itemId: DeployableId | undefined, label: string, icon: string, layoutSlot?: AbilitySlot): HTMLElement {
     const pad = document.createElement('div');
     pad.className = `touch-pad ${kind === 'action' ? 'action-pad' : 'move-pad'}`;
     pad.dataset.team = team;
     pad.dataset.kind = kind;
-    pad.dataset.controlId = this.controlId(team, kind, itemId);
+    pad.dataset.controlId = this.controlId(team, kind, itemId, layoutSlot);
     if (itemId) pad.dataset.item = itemId;
     pad.style.setProperty('--visual-rotation', `${CONTROL_VISUAL_ROTATION[team]}deg`);
     pad.setAttribute('role', 'button');
@@ -345,7 +355,7 @@ export class TouchControls {
     const dx = event.clientX - session.origin.x;
     const dy = event.clientY - session.origin.y;
     const length = Math.hypot(dx, dy);
-    const radius = this.layout.floatRadii[this.controlId(session.team, session.kind, session.itemId)];
+    const radius = this.layout.floatRadii[session.pad.dataset.controlId as ControlId];
     const clamped = Math.min(radius, length);
     const visual = orientPadVector(session.team, dx, dy);
     session.knob.style.transform = `translate(${visual.x / (length || 1) * clamped}px, ${visual.y / (length || 1) * clamped}px)`;

@@ -1,5 +1,5 @@
 import './style.css';
-import { cloneArena, DEFAULT_ARENA, DEFAULT_DEPOT_CAPACITY, depotFitsArena, flagFitsArena, MAX_DEPOT_CAPACITY, migrateArena, nextArenaObjectId, simpleArena, WALL_TYPES, wallFitsArena, type ArenaDefinition, type DepotDefinition, type DepotType, type WallDefinition, type WallType } from './game/arena.ts';
+import { cloneArena, DEFAULT_ARENA, DEFAULT_DEPOT_CAPACITY, depotFitsArena, flagFitsArena, MAX_DEPOT_CAPACITY, migrateArena, nextArenaObjectId, powerUpRegionFitsArena, WALL_TYPES, wallFitsArena, type ArenaDefinition, type DepotDefinition, type DepotType, type RectRegion, type WallDefinition, type WallType } from './game/arena.ts';
 import { CaptureTheFlag } from './game/CaptureTheFlag.ts';
 import { Game, type MoveInput } from './game/Game.ts';
 import type { Team, Vec2 } from './game/arena.ts';
@@ -25,6 +25,8 @@ function loadArena(): ArenaDefinition {
     const migrated = migrateArena(candidate);
     if (!Array.isArray(migrated.depots) || !migrated.depots.every(depot =>
       ['wall', 'bomb'].includes(depot.type) && depotFitsArena(depot, migrated))) return cloneArena(DEFAULT_ARENA);
+    if (!Array.isArray(migrated.powerupSpawnAreas) || !migrated.powerupSpawnAreas.every(region =>
+      typeof region.id === 'string' && powerUpRegionFitsArena(region, migrated))) return cloneArena(DEFAULT_ARENA);
     return migrated;
   } catch { return cloneArena(DEFAULT_ARENA); }
 }
@@ -36,7 +38,7 @@ let editing = false;
 let editingControls = false;
 let selectedControl: ControlId = 'red-move';
 let selectedId: string | null = null;
-type PlacementTool = 'wood' | 'stone' | 'wall-depot' | 'bomb-depot';
+type PlacementTool = 'wood' | 'stone' | 'wall-depot' | 'bomb-depot' | 'power-region';
 let placementTool: PlacementTool | null = null;
 let editorMessage = '';
 let dragging = false;
@@ -69,25 +71,26 @@ app.innerHTML = `
       <div id="status" class="status" role="status" aria-live="polite"></div>
       <div id="play-panel">
         <div class="divider"></div><div class="section-kicker">INVENTORY</div>
-        <div class="inventory-card" data-team="red"><strong>RED</strong><span>Wall <b id="red-wall-count">5</b></span><span>Bomb <b id="red-bomb-count">2</b></span></div>
-        <div class="inventory-card" data-team="blue"><strong>BLUE</strong><span>Wall <b id="blue-wall-count">5</b></span><span>Bomb <b id="blue-bomb-count">2</b></span></div>
+        <div class="inventory-card" data-team="red"><strong>RED</strong><span>Wall <b id="red-wall-count">8</b></span><span>Bomb <b id="red-bomb-count">2</b></span></div>
+        <div class="inventory-card" data-team="blue"><strong>BLUE</strong><span>Wall <b id="blue-wall-count">8</b></span><span>Bomb <b id="blue-bomb-count">2</b></span></div>
         <div class="divider"></div><div class="section-kicker">CONTROLS</div>
         <div class="control-row"><span class="team-dot red"></span><strong>RED</strong><span>Move W A S D</span></div>
         <div class="control-row"><span class="team-dot blue"></span><strong>BLUE</strong><span>Move ↑ ← ↓ →</span></div>
-        <p class="hint">Red aims T F G H; hold Space for Wall or E for Bomb. Blue aims I J K L; hold Enter for Wall or right Shift for Bomb. Release to act. Esc cancels. Scroll over the arena while aiming a bomb to adjust keyboard throw distance.</p>
+        <p class="hint">Red aims T F G H; hold Space for Wall, E for Bomb, or Q for a charged Mega Bomb. Blue aims I J K L; hold Enter for Wall, right Shift for Bomb, or P for Mega Bomb. Release to act. Esc cancels. Scroll over the arena while aiming a bomb to adjust keyboard throw distance.</p>
       </div>
       <div class="sidebar-footer">LOCAL TWO-PLAYER PROTOTYPE <span>01 / CTF</span></div>
     </aside>
     <div id="edit-panel" class="editor-dock" hidden>
       <div class="editor-heading"><strong>ARENA EDITOR</strong><span id="selection">Nothing selected</span></div>
       <div class="section-kicker">PLACE</div>
-      <div class="editor-actions"><button id="add-wood" type="button">Wood Wall</button><button id="add-stone" type="button">Stone Wall</button><button id="add-wall-depot" type="button">Wall Depot</button><button id="add-bomb-depot" type="button">Bomb Depot</button></div>
+      <div class="editor-actions"><button id="add-wood" type="button">Wood Wall</button><button id="add-stone" type="button">Stone Wall</button><button id="add-wall-depot" type="button">Wall Depot</button><button id="add-bomb-depot" type="button">Bomb Depot</button><button id="add-power-region" type="button">Power-Up Region</button></div>
       <button id="cancel-placement" class="editor-wide-button" type="button" hidden>Cancel Placement</button>
       <div id="wall-options" class="editor-options" hidden><div class="section-kicker">WALL</div><div class="editor-actions"><button id="rotate-wall" type="button">Rotate 90°</button><button id="delete-wall" type="button">Delete Wall</button></div></div>
       <div id="depot-options" class="editor-options" hidden><div class="section-kicker">DEPOT</div><div class="editor-actions"><button id="shrink-depot" type="button">Size −</button><button id="grow-depot" type="button">Size +</button><button id="delete-depot" type="button">Delete Depot</button></div><label id="depot-capacity-setting" class="editor-setting">Capacity <input id="depot-capacity" type="number" min="1" max="32" step="1" value="8" inputmode="numeric"></label></div>
       <div id="flag-options" class="editor-options" hidden><div class="section-kicker">FLAG + BASE</div><button id="reset-flag" class="editor-wide-button" type="button">Return to Default</button></div>
+      <div id="power-region-options" class="editor-options" hidden><div class="section-kicker">POWER-UP REGION</div><div class="editor-actions"><button id="region-width-down" type="button">Width −</button><button id="region-width-up" type="button">Width +</button><button id="region-depth-down" type="button">Depth −</button><button id="region-depth-up" type="button">Depth +</button><button id="delete-power-region" type="button">Delete Region</button></div></div>
       <div class="editor-actions"><button id="reset-arena" type="button">Reset Arena</button><button id="play-arena" type="button">Play Arena</button></div>
-      <p class="hint">Choose an object, then tap the arena to place it. Tap an existing object to select it; drag to move. Reset Arena restores the flags and one center wall.</p>
+      <p class="hint">Choose an object, then tap the arena to place it. Tap an existing object to select it; drag to move. Power-up regions are visible only here. Reset Arena restores the default segmented wall rows, depots, and objectives.</p>
     </div>
     <div id="controls-panel" class="editor-dock controls-dock" hidden>
       <div class="editor-heading"><strong>CONTROLS</strong><span>Tap a pad to edit it, then drag it to move it.</span></div>
@@ -122,14 +125,26 @@ const gameToast = document.querySelector<HTMLDivElement>('#game-toast')!;
 const debugPanel = document.querySelector<HTMLElement>('#debug-panel')!;
 const debugEnabled = new URLSearchParams(location.search).has('debug');
 let touchController: TouchControls;
+const visibleAbilitySlots: Record<Team, boolean> = { red: false, blue: false };
+
+function refreshAbilityControls(): void {
+  for (const team of ['red', 'blue'] as const) {
+    const visible = editingControls || game.powerUps.players[team].charges['mega-bomb'] > 0;
+    if (visible !== visibleAbilitySlots[team]) {
+      visibleAbilitySlots[team] = visible;
+      touchController.setActionSlots(team, visible ? [...actionSlots, megaActionSlot] : actionSlots);
+    }
+  }
+}
 
 function updateInventoryUi(): void {
+  refreshAbilityControls();
   for (const team of ['red', 'blue'] as const) {
     for (const item of ['wall', 'bomb'] as const) {
       document.querySelector<HTMLElement>(`#${team}-${item}-count`)!.textContent =
         String(game.deployments.inventory[team][item]);
     }
-    touchController.setInventory(team, game.deployments.inventory[team]);
+    touchController.setInventory(team, { ...game.deployments.inventory[team], 'mega-bomb': game.powerUps.players[team].charges['mega-bomb'] });
   }
 }
 
@@ -147,14 +162,16 @@ function updateUi(): void {
   const wall = selectedWall();
   const depot = selectedDepot();
   const flag = selectedFlag();
+  const region = selectedPowerRegion();
   const toolNames: Record<PlacementTool, string> = {
-    wood: 'Wood Wall', stone: 'Stone Wall', 'wall-depot': 'Wall Depot', 'bomb-depot': 'Bomb Depot',
+    wood: 'Wood Wall', stone: 'Stone Wall', 'wall-depot': 'Wall Depot', 'bomb-depot': 'Bomb Depot', 'power-region': 'Power-Up Region',
   };
   selection.textContent = editorMessage || (placementTool ? `Tap arena to place ${toolNames[placementTool]}` :
     wall ? `${WALL_TYPES[wall.type].label} wall · ${WALL_TYPES[wall.type].maxHealth} HP` :
     depot ? `${depot.type === 'wall' ? 'Wall' : 'Bomb'} depot · radius ${depot.radius.toFixed(2)} · holds ${depot.capacity}` :
+    region ? `Power-up region · ${(region.bounds.maxX - region.bounds.minX).toFixed(1)} × ${(region.bounds.maxZ - region.bounds.minZ).toFixed(1)}` :
     flag ? `${flag.toUpperCase()} flag + base · drag to move` : 'Choose an object or tap one to select');
-  for (const [tool, id] of [['wood', 'add-wood'], ['stone', 'add-stone'], ['wall-depot', 'add-wall-depot'], ['bomb-depot', 'add-bomb-depot']] as const) {
+  for (const [tool, id] of [['wood', 'add-wood'], ['stone', 'add-stone'], ['wall-depot', 'add-wall-depot'], ['bomb-depot', 'add-bomb-depot'], ['power-region', 'add-power-region']] as const) {
     const button = document.querySelector<HTMLButtonElement>(`#${id}`)!;
     button.setAttribute('aria-pressed', String(placementTool === tool));
   }
@@ -162,6 +179,7 @@ function updateUi(): void {
   document.querySelector<HTMLElement>('#wall-options')!.hidden = !wall || !!placementTool;
   document.querySelector<HTMLElement>('#depot-options')!.hidden = !depot || !!placementTool;
   document.querySelector<HTMLElement>('#flag-options')!.hidden = !flag || !!placementTool;
+  document.querySelector<HTMLElement>('#power-region-options')!.hidden = !region || !!placementTool;
   if (depot) document.querySelector<HTMLInputElement>('#depot-capacity')!.value = String(depot.capacity);
   touchControls.hidden = editing || (!touchVisible && !editingControls) || menuOpen || portraitBlocked;
   sidebar.hidden = !menuOpen;
@@ -336,7 +354,8 @@ window.visualViewport?.addEventListener('resize', refreshPortraitState);
 
 function reportDeployment(team: Team, id: DeployableId, result: ReturnType<Game['releaseDeployAim']>): void {
   if (result === 'placed') game.state.event = id === 'bomb'
-    ? `${team.toUpperCase()} threw a bomb.` : `${team.toUpperCase()} built a wall.`;
+    ? `${team.toUpperCase()} threw a bomb.` : id === 'mega-bomb'
+      ? `${team.toUpperCase()} threw a Mega Bomb.` : `${team.toUpperCase()} built a wall.`;
   else if (result === 'invalid') game.state.event = `${team.toUpperCase()}: invalid placement or no inventory.`;
   else game.state.event = `${team.toUpperCase()} cancelled deployment.`;
   updateUi();
@@ -356,14 +375,16 @@ touchController = new TouchControls(touchControls, {
   onAimRelease: (team, id) => { if (!editing && !editingControls) reportDeployment(team, id, game.releaseDeployAim(team, id)); },
   onAimCancel: (team, id) => game.cancelDeployAim(team, id),
 }, loadControlLayout(), persistControlLayout, id => { selectedControl = id; syncControlSettings(); });
-const actionSlots: ActionSlot[] = Object.values(DEPLOYABLES).map(definition => ({
+const actionSlots: ActionSlot[] = (['wall', 'bomb'] as const).map(id => DEPLOYABLES[id]).map(definition => ({
   id: definition.id, label: definition.label, icon: definition.control.icon, size: definition.control.size,
 }));
+const megaActionSlot: ActionSlot = { id: 'mega-bomb', label: 'Mega', icon: 'bomb', size: 'secondary', layoutSlot: 'ability-1' };
 touchController.setActionSlots('red', actionSlots);
 touchController.setActionSlots('blue', actionSlots);
 
 function selectedWall(): WallDefinition | undefined { return arena.walls.find(w => w.id === selectedId); }
 function selectedDepot(): DepotDefinition | undefined { return arena.depots.find(d => d.id === selectedId); }
+function selectedPowerRegion(): RectRegion | undefined { return arena.powerupSpawnAreas.find(region => region.id === selectedId); }
 function selectedFlag(): Team | null {
   return selectedId === 'flag:red' ? 'red' : selectedId === 'flag:blue' ? 'blue' : null;
 }
@@ -397,7 +418,7 @@ function armTool(tool: PlacementTool): void {
   view.rebuildArena(arena);
   updateUi();
 }
-for (const [id, tool] of [['add-wood', 'wood'], ['add-stone', 'stone'], ['add-wall-depot', 'wall-depot'], ['add-bomb-depot', 'bomb-depot']] as const) {
+for (const [id, tool] of [['add-wood', 'wood'], ['add-stone', 'stone'], ['add-wall-depot', 'wall-depot'], ['add-bomb-depot', 'bomb-depot'], ['add-power-region', 'power-region']] as const) {
   document.querySelector(`#${id}`)!.addEventListener('click', () => armTool(tool));
 }
 document.querySelector('#cancel-placement')!.addEventListener('click', () => {
@@ -418,6 +439,11 @@ function placeObject(point: Vec2): void {
       ...WALL_TYPES[type].placementFootprint, rotation: 0,
     };
     if (wallFitsArena(wall, arena)) { arena.walls.push(wall); selectedId = wall.id; }
+  } else if (placementTool === 'power-region') {
+    const region: RectRegion = { id: nextArenaObjectId(arena, 'power-region'), bounds: {
+      minX: position.x - 2.5, maxX: position.x + 2.5, minZ: position.z - 2.5, maxZ: position.z + 2.5,
+    } };
+    if (powerUpRegionFitsArena(region, arena)) { arena.powerupSpawnAreas.push(region); selectedId = region.id; }
   } else {
     const type: DepotType = placementTool === 'wall-depot' ? 'wall' : 'bomb';
     const depot: DepotDefinition = {
@@ -436,7 +462,7 @@ function placeObject(point: Vec2): void {
   saveAndRefresh();
 }
 document.querySelector('#reset-arena')!.addEventListener('click', () => {
-  Object.assign(arena, simpleArena());
+  Object.assign(arena, cloneArena(DEFAULT_ARENA));
   selectedId = null;
   placementTool = null;
   editorMessage = '';
@@ -466,6 +492,25 @@ function resizeDepot(change: number): void {
 }
 document.querySelector('#shrink-depot')!.addEventListener('click', () => resizeDepot(-0.25));
 document.querySelector('#grow-depot')!.addEventListener('click', () => resizeDepot(0.25));
+function resizePowerRegion(axis: 'x' | 'z', change: number): void {
+  const region = selectedPowerRegion();
+  if (!region) return;
+  const old = { ...region.bounds };
+  if (axis === 'x') { region.bounds.minX -= change / 2; region.bounds.maxX += change / 2; }
+  else { region.bounds.minZ -= change / 2; region.bounds.maxZ += change / 2; }
+  if (!powerUpRegionFitsArena(region, arena)) region.bounds = old;
+  saveAndRefresh();
+}
+for (const [id, axis, change] of [
+  ['region-width-down', 'x', -0.5], ['region-width-up', 'x', 0.5],
+  ['region-depth-down', 'z', -0.5], ['region-depth-up', 'z', 0.5],
+] as const) document.querySelector(`#${id}`)!.addEventListener('click', () => resizePowerRegion(axis, change));
+document.querySelector('#delete-power-region')!.addEventListener('click', () => {
+  if (!selectedPowerRegion()) return;
+  arena.powerupSpawnAreas = arena.powerupSpawnAreas.filter(region => region.id !== selectedId);
+  selectedId = null;
+  saveAndRefresh();
+});
 document.querySelector<HTMLInputElement>('#depot-capacity')!.addEventListener('change', event => {
   const depot = selectedDepot();
   if (!depot) return;
@@ -493,7 +538,10 @@ canvas.addEventListener('pointerdown', event => {
   selectedId = view.pickArenaObject(event.clientX, event.clientY);
   editorMessage = '';
   const flag = selectedFlag();
-  const position = selectedWall()?.position ?? selectedDepot()?.position ?? (flag ? arena.flagPositions[flag] : null);
+  const region = selectedPowerRegion();
+  const position = selectedWall()?.position ?? selectedDepot()?.position ?? (region ? {
+    x: (region.bounds.minX + region.bounds.maxX) / 2, z: (region.bounds.minZ + region.bounds.maxZ) / 2,
+  } : flag ? arena.flagPositions[flag] : null);
   dragging = !!position && !!point;
   if (position && point) dragOffset = { x: position.x - point.x, z: position.z - point.z };
   if (dragging) {
@@ -510,7 +558,10 @@ canvas.addEventListener('pointermove', event => {
   const wall = selectedWall();
   const depot = selectedDepot();
   const flag = selectedFlag();
-  const old = wall ? { ...wall.position } : depot ? { ...depot.position } : flag ? { ...arena.flagPositions[flag] } : null;
+  const region = selectedPowerRegion();
+  const old = wall ? { ...wall.position } : depot ? { ...depot.position } : region ? {
+    x: (region.bounds.minX + region.bounds.maxX) / 2, z: (region.bounds.minZ + region.bounds.maxZ) / 2,
+  } : flag ? { ...arena.flagPositions[flag] } : null;
   if (!old) return;
   const position = {
     x: Math.round((point.x + dragOffset.x) * 4) / 4,
@@ -522,6 +573,13 @@ canvas.addEventListener('pointermove', event => {
   } else if (depot) {
     depot.position = position;
     if (!depotFitsArena(depot, arena)) depot.position = old;
+  } else if (region) {
+    const previous = { ...region.bounds };
+    const dx = position.x - old.x;
+    const dz = position.z - old.z;
+    region.bounds = { minX: previous.minX + dx, maxX: previous.maxX + dx,
+      minZ: previous.minZ + dz, maxZ: previous.maxZ + dz };
+    if (!powerUpRegionFitsArena(region, arena)) region.bounds = previous;
   } else if (flag) {
     arena.flagPositions[flag] = position;
     if (!flagFitsArena(flag, position, arena)) arena.flagPositions[flag] = old;
@@ -537,8 +595,8 @@ canvas.addEventListener('pointercancel', finishDrag);
 canvas.addEventListener('lostpointercapture', finishDrag);
 
 const actionKeys: Record<string, [Team, DeployableId]> = {
-  Space: ['red', 'wall'], KeyE: ['red', 'bomb'],
-  Enter: ['blue', 'wall'], ShiftRight: ['blue', 'bomb'],
+  Space: ['red', 'wall'], KeyE: ['red', 'bomb'], KeyQ: ['red', 'mega-bomb'],
+  Enter: ['blue', 'wall'], ShiftRight: ['blue', 'bomb'], KeyP: ['blue', 'mega-bomb'],
 };
 const keyboardOwned = new Set<string>();
 const controlKeys = new Set([
@@ -554,16 +612,17 @@ function keyboardAim(team: Team, id: DeployableId): void {
   const player = game.state.players[team];
   const direction = Math.hypot(raw.x, raw.z) > 0
     ? raw : { x: Math.sin(player.facing), z: Math.cos(player.facing) };
-  game.updateDeployAim(team, id, direction, id === 'bomb' ? keyboardThrowStrength[team] : 0.67);
+  game.updateDeployAim(team, id, direction, id !== 'wall' ? keyboardThrowStrength[team] : 0.67);
 }
 canvas.addEventListener('wheel', event => {
   if (editing || editingControls) return;
-  const team = keyboardOwned.has('KeyE') ? 'red' : keyboardOwned.has('ShiftRight') ? 'blue' : null;
+  const team = keyboardOwned.has('KeyE') || keyboardOwned.has('KeyQ') ? 'red'
+    : keyboardOwned.has('ShiftRight') || keyboardOwned.has('KeyP') ? 'blue' : null;
   if (!team) return;
   event.preventDefault();
   keyboardThrowStrength[team] = Math.max(AIM_DEAD_ZONE + 0.02,
     Math.min(1, keyboardThrowStrength[team] - Math.sign(event.deltaY) * 0.06));
-  keyboardAim(team, 'bomb');
+  keyboardAim(team, keyboardOwned.has(team === 'red' ? 'KeyQ' : 'KeyP') ? 'mega-bomb' : 'bomb');
 }, { passive: false });
 window.addEventListener('keydown', event => {
   if (menuOpen || portraitBlocked) {
@@ -587,6 +646,7 @@ window.addEventListener('keydown', event => {
   if (editing && !event.repeat && ['Delete', 'Backspace'].includes(event.code)) {
     if (selectedWall()) document.querySelector<HTMLButtonElement>('#delete-wall')!.click();
     else if (selectedDepot()) document.querySelector<HTMLButtonElement>('#delete-depot')!.click();
+    else if (selectedPowerRegion()) document.querySelector<HTMLButtonElement>('#delete-power-region')!.click();
   }
   if (editing || event.repeat) return;
   if (event.code === 'Escape') {
@@ -667,7 +727,8 @@ function frame(now: number): void {
     }
   } else accumulator = 0;
   if (game.state.event !== lastEvent) { lastEvent = game.state.event; updateUi(); }
-  const inventory = JSON.stringify(game.deployments.inventory);
+  const inventory = JSON.stringify([game.deployments.inventory,
+    game.powerUps.players.red.charges, game.powerUps.players.blue.charges]);
   if (inventory !== lastInventory) { lastInventory = inventory; updateInventoryUi(); }
   if (game.lastTheft && game.lastTheft.sequence !== lastTheftSequence) {
     lastTheftSequence = game.lastTheft.sequence;
@@ -677,13 +738,15 @@ function frame(now: number): void {
   gameToast.hidden = editing || now > toastUntil;
   if (debugEnabled && now - lastDebug > 250) {
     lastDebug = now;
-    const teamLine = (team: Team) => `${team.toUpperCase()} ${game.economy.territory[team]}  W:${game.deployments.inventory[team].wall} B:${game.deployments.inventory[team].bomb}  passive:${game.economy.passiveBombRemaining[team].toFixed(1)}s`;
+    const teamLine = (team: Team) => `${team.toUpperCase()} ${game.economy.territory[team]}  W:${game.deployments.inventory[team].wall} B:${game.deployments.inventory[team].bomb}  passive:${game.economy.passiveBombRemaining[team].toFixed(1)}s  speed:${game.powerUps.players[team].speedRemaining.toFixed(1)}s shield:${game.powerUps.players[team].shieldRemaining.toFixed(1)}s mega:${game.powerUps.players[team].charges['mega-bomb']}`;
     debugPanel.textContent = [teamLine('red'), teamLine('blue'),
+      `power-ups: next ${game.powerUps.nextSpawnRemaining.toFixed(1)}s active ${game.powerUps.active.length} rejected ${JSON.stringify(game.powerUps.rejected)}`,
+      ...game.powerUps.active.map(pickup => `${pickup.definitionId} ${pickup.id} (${pickup.position.x.toFixed(1)}, ${pickup.position.z.toFixed(1)}) ${pickup.remaining.toFixed(1)}s`),
       ...game.economy.depots.map(d => `${d.type} depot ${d.id}: stock ${d.stock}/${d.capacity}, next ${d.generationRemaining.toFixed(1)}s`),
       ...game.deployments.walls.map(w => `${w.id}: ${w.type} ${w.hp}/${WALL_TYPES[w.type].maxHealth} HP`),
     ].join('\n');
   }
-  view.sync(game.state, arena, editing, game.deployments, game.economy);
+  view.sync(game.state, arena, editing, game.deployments, game.economy, game.powerUps);
   requestAnimationFrame(frame);
 }
 refreshPortraitState();
