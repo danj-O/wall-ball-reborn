@@ -5,6 +5,7 @@ import { Game, type MoveInput } from './game/Game.ts';
 import type { Team, Vec2 } from './game/arena.ts';
 import { AIM_DEAD_ZONE, DEPLOYABLES, type DeployableId } from './game/deployables.ts';
 import { TouchControls, type ActionSlot } from './input/TouchControls.ts';
+import { DoubleTapZoomGuard } from './input/DoubleTapZoomGuard.ts';
 import { CONTROL_SIZE_RANGE, MOVE_AREA_RANGE, MOVE_INSET_RANGE, normalizeControlLayout, type ControlId, type ControlLayout } from './input/controlLayout.ts';
 import { ArenaView } from './view/ArenaView.ts';
 import { APPEARANCE_COLOR_FIELDS, APPEARANCE_LIGHT_RANGES, APPEARANCE_STORAGE_KEY, DEFAULT_APPEARANCE, loadAppearance, type AppearanceTheme } from './view/appearance.ts';
@@ -1188,7 +1189,28 @@ for (const type of ['contextmenu', 'dragstart', 'selectstart']) {
   arenaPanel.addEventListener(type, event => event.preventDefault());
 }
 arenaPanel.addEventListener('touchmove', event => event.preventDefault(), { passive: false });
-arenaPanel.addEventListener('gesturestart', event => event.preventDefault(), { passive: false });
+// WebKit can still recognize double-tap zoom on absolutely positioned game surfaces.
+// Only cancel the second isolated tap; pointer-driven controls keep their normal events.
+const zoomGuard = new DoubleTapZoomGuard();
+const touchPoint = (touch: Touch | null) => touch ? {
+  identifier: touch.identifier, x: touch.clientX, y: touch.clientY,
+} : null;
+const isNonInteractiveTouch = (target: EventTarget | null) =>
+  target instanceof Element && !target.closest('button, input, select, textarea, a, summary, [contenteditable]');
+app.addEventListener('touchstart', event => {
+  zoomGuard.begin(event.touches.length, touchPoint(event.changedTouches.item(0)),
+    performance.now(), isNonInteractiveTouch(event.target));
+}, { passive: true });
+app.addEventListener('touchmove', event => {
+  zoomGuard.move(event.touches.length, touchPoint(event.changedTouches.item(0)));
+}, { passive: true });
+app.addEventListener('touchend', event => {
+  if (zoomGuard.end(event.touches.length, touchPoint(event.changedTouches.item(0)),
+    performance.now(), isNonInteractiveTouch(event.target)) && event.cancelable) event.preventDefault();
+}, { passive: false });
+app.addEventListener('touchcancel', () => zoomGuard.cancel(), { passive: true });
+app.addEventListener('gesturestart', event => event.preventDefault(), { passive: false });
+app.addEventListener('gesturechange', event => event.preventDefault(), { passive: false });
 canvas.addEventListener('pointerdown', event => {
   if (!editing || editorGesture) return;
   event.preventDefault();
@@ -1372,6 +1394,7 @@ window.addEventListener('keyup', event => {
   held.delete(event.code);
 });
 window.addEventListener('blur', () => {
+  zoomGuard.cancel();
   cancelEditorGesture();
   touchController.cancelAll();
   held.clear();
@@ -1383,6 +1406,7 @@ window.addEventListener('blur', () => {
 });
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    zoomGuard.cancel();
     cancelEditorGesture();
     touchController.cancelAll();
     held.clear();
