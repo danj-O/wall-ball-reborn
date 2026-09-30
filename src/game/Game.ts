@@ -121,10 +121,15 @@ export class Game {
       this.deployments.walls.push(entity);
       this.physics.syncWalls(this.deployments.walls);
     } else {
+      entity.fuseDuration = this.settings.projectiles[entity.definitionId].fuseSeconds;
+      entity.fuseRemaining = entity.fuseDuration;
       entity.blastRadius = this.settings.projectiles[entity.definitionId].blastRadius;
+      entity.blastForce = this.settings.projectiles[entity.definitionId].blastForce;
+      entity.blastLift = this.settings.projectiles[entity.definitionId].blastLift;
+      entity.originHeight = this.state.players[team].height;
       this.match.stats[team].bombsThrown++;
       this.deployments.bombs.push(entity);
-      this.physics.addBomb(entity, this.settings.projectiles[entity.definitionId]);
+      this.physics.addBomb(entity, this.settings.projectiles[entity.definitionId], this.deployments.walls);
     }
     if (definition.id === 'mega-bomb') this.powerUps.players[team].charges['mega-bomb']--;
     else this.deployments.inventory[team][definition.id] -= definition.inventoryCost;
@@ -164,7 +169,7 @@ export class Game {
       trajectory: definition.footprint.kind === 'circle'
         ? predictBombTrajectory(player.position, placement.position, definition.footprint.radius,
           this.arena.bounds, this.deployments.walls, this.state.players, this.playerRadius,
-          this.deployments.bombs, team, this.settings.projectiles[id as 'bomb' | 'mega-bomb'])
+          this.deployments.bombs, team, this.settings.projectiles[id as 'bomb' | 'mega-bomb'], player.height)
         : undefined,
       valid: (id === 'mega-bomb' ? this.powerUps.players[team].charges['mega-bomb'] > 0
         : this.deployments.inventory[team][id] >= definition.inventoryCost) &&
@@ -181,8 +186,13 @@ export class Game {
       red: this.speed * (this.powerUps.players.red.speedRemaining > 0 ? POWER_UP_CONFIG.speedMultiplier : 1),
       blue: this.speed * (this.powerUps.players.blue.speedRemaining > 0 ? POWER_UP_CONFIG.speedMultiplier : 1),
     };
-    this.physics.step(step, this.state, this.deployments, input, speeds, this.acceleration, this.braking);
-    tickDeploymentState(this.deployments, step, owner => { this.match.stats[owner].wallsDestroyed++; });
+    this.physics.step(step, this.state, this.deployments, input, speeds, this.acceleration, this.braking,
+      this.settings.airControl, this.settings.airBraking);
+    tickDeploymentState(this.deployments, step, owner => { this.match.stats[owner].wallsDestroyed++; },
+      bomb => this.physics.applyBlast(bomb, {
+        blastForce: bomb.blastForce ?? this.settings.projectiles[bomb.definitionId].blastForce,
+        blastLift: bomb.blastLift ?? this.settings.projectiles[bomb.definitionId].blastLift,
+      }, this.state));
     this.physics.removeMissingBombs(this.deployments.bombs);
     this.physics.syncWalls(this.deployments.walls);
     const priorCollection = this.powerUps.lastCollection?.sequence;
@@ -218,7 +228,8 @@ export class Game {
     }
     const red = this.state.players.red.position;
     const blue = this.state.players.blue.position;
-    if (Math.hypot(red.x - blue.x, red.z - blue.z) < 0.9) {
+    if (!this.state.players.red.airborne && !this.state.players.blue.airborne &&
+        Math.hypot(red.x - blue.x, red.z - blue.z) < 0.9) {
       for (const invader of ['red', 'blue'] as const) {
         const defender: Team = invader === 'red' ? 'blue' : 'red';
         if (this.economy.territory[invader] !== defender || this.economy.theftUsedThisVisit[invader]) continue;

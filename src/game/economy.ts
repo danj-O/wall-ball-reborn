@@ -82,7 +82,8 @@ export function tickEconomy(
       depot.stock = Math.min(depot.capacity, depot.stock + 1);
       depot.generationRemaining += interval;
     }
-    const occupants = (['red', 'blue'] as const).filter(team => depotContains(depot, players[team].position));
+    const occupants = (['red', 'blue'] as const).filter(team =>
+      !players[team].airborne && depotContains(depot, players[team].position));
     while (depot.stock > 0 && occupants.length > 0) {
       const collector = occupants.includes(depot.nextCollector) ? depot.nextCollector : occupants[0];
       deployment.inventory[collector][depot.type]++;

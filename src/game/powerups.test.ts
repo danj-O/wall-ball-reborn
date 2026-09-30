@@ -132,7 +132,7 @@ test('Shield blocks territory resource theft but still allows a flag return and 
   flagGame.update(1 / 60, idle);
   assert.equal(flagGame.state.players.red.carrying, 'blue');
   flagGame.powerUps.players.red.shieldRemaining = POWER_UP_CONFIG.shieldSeconds;
-  flagGame.state.players.blue.position = { ...flagGame.state.players.red.position };
+  flagGame.state.players.blue.position = { x: flagGame.state.players.red.position.x + 0.8, z: flagGame.state.players.red.position.z };
   flagGame.update(1 / 60, idle);
   assert.equal(flagGame.state.players.red.carrying, null);
   assert.equal(flagGame.state.flags.blue.carrier, null);

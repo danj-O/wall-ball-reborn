@@ -114,6 +114,27 @@ test('bomb impact transfers momentum to a player', () => {
   assert.ok(body.velocity.x < 9);
 });
 
+test('close wall throws start outside solid geometry and do not gain explosive bounce speed', () => {
+  const game = makeGame();
+  game.state.players.red.position = { x: -6, z: 0 };
+  game.update(1 / 60, idle);
+  game.beginDeployAim('red', 'bomb');
+  const preview = game.updateDeployAim('red', 'bomb', { x: 1, z: 0 }, 0.5);
+  assert.equal(game.releaseDeployAim('red', 'bomb'), 'placed');
+  const bomb = game.deployments.bombs.at(-1)!;
+  const body = game.physics.getBombBody(bomb.id)!;
+  assert.ok(preview?.trajectory);
+  assert.ok(Math.abs(preview.trajectory.points[0].x - body.position.x) < 0.001);
+  assert.ok(Math.abs(preview.trajectory.points[0].y - body.position.y) < 0.001);
+  const launchSpeed = body.velocity.length();
+  let peakSpeed = launchSpeed;
+  for (let i = 0; i < 60; i++) {
+    game.update(1 / 60, idle);
+    peakSpeed = Math.max(peakSpeed, body.velocity.length());
+  }
+  assert.ok(peakSpeed < launchSpeed * 1.5, `wall bounce ${peakSpeed} from ${launchSpeed}`);
+});
+
 test('gravity lands bombs on top of walls and they can fall off', () => {
   const arena = cloneArena(DEFAULT_ARENA);
   arena.walls = [{ id: 'platform', type: 'stone', position: { x: 0, z: 0 }, width: 2, depth: 2, rotation: 0 }];

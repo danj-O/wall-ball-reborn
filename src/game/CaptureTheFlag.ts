@@ -16,8 +16,8 @@ export class CaptureTheFlag implements GameMode {
     this.pickupLocked = { red: false, blue: false };
     return {
       players: {
-        red: { team: 'red', position: { ...arena.playerSpawns.red }, facing: Math.PI / 2, carrying: null },
-        blue: { team: 'blue', position: { ...arena.playerSpawns.blue }, facing: -Math.PI / 2, carrying: null },
+        red: { team: 'red', position: { ...arena.playerSpawns.red }, height: 0, airborne: false, facing: Math.PI / 2, carrying: null },
+        blue: { team: 'blue', position: { ...arena.playerSpawns.blue }, height: 0, airborne: false, facing: -Math.PI / 2, carrying: null },
       },
       flags: { red: { team: 'red', carrier: null }, blue: { team: 'blue', carrier: null } },
       winner: null,
@@ -36,7 +36,7 @@ export class CaptureTheFlag implements GameMode {
 
     const red = state.players.red;
     const blue = state.players.blue;
-    if (distanceSquared(red.position, blue.position) < this.tagRadius ** 2) {
+    if (!red.airborne && !blue.airborne && distanceSquared(red.position, blue.position) < this.tagRadius ** 2) {
       // Resolve both carriers together so a mutual tag returns both flags.
       const returned = (['red', 'blue'] as const).filter(team => state.players[team].carrying !== null);
       for (const team of returned) {
@@ -51,13 +51,13 @@ export class CaptureTheFlag implements GameMode {
     for (const team of ['red', 'blue'] as const) {
       const player = state.players[team];
       const enemy = other(team);
-      if (player.carrying === null && !this.pickupLocked[team] && state.flags[enemy].carrier === null &&
+      if (!player.airborne && player.carrying === null && !this.pickupLocked[team] && state.flags[enemy].carrier === null &&
           distanceSquared(player.position, arena.flagPositions[enemy]) < this.pickupRadius ** 2) {
         player.carrying = enemy;
         state.flags[enemy].carrier = team;
         state.event = `${team.toUpperCase()} stole the ${enemy} flag!`;
       }
-      if (player.carrying === enemy &&
+      if (!player.airborne && player.carrying === enemy &&
           distanceSquared(player.position, arena.flagPositions[team]) < this.baseRadius ** 2) {
         state.winner = team;
         state.event = `${team.toUpperCase()} wins!`;

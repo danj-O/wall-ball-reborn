@@ -16,12 +16,13 @@ export type Placement = { position: Vec2; rotation: number };
 export type RuntimeWall = WallDefinition & { kind: 'wall'; definitionId: ResourceId; owner: Team | null; hp: number; source: 'initial' | 'deployed' };
 export type RuntimeBomb = {
   kind: 'bomb'; definitionId: BombType; id: string; owner: Team;
-  origin: Vec2; target: Vec2; position: Vec2; height: number;
+  origin: Vec2; originHeight: number; target: Vec2; position: Vec2; height: number;
   orientation: { x: number; y: number; z: number; w: number };
   phase: 'flying' | 'lit'; travelDuration: number;
   velocity: Vec2; verticalVelocity: number;
   fuseRemaining: number; fuseDuration: number;
   blastRadius: number; wallDamage: number; physicalRadius: number;
+  blastForce?: number; blastLift?: number;
 };
 export type RuntimeEntity = RuntimeWall | RuntimeBomb;
 export type Explosion = { id: string; definitionId: BombType; position: Vec2; radius: number; remaining: number; duration: number };
@@ -40,7 +41,8 @@ export type PlacementContext = {
   bombs: readonly RuntimeBomb[];
   players: Record<Team, PlayerState>;
 };
-export type TickContext = { state: DeploymentState; dt: number; onWallDestroyed?: (owner: Team, wall: RuntimeWall) => void };
+export type TickContext = { state: DeploymentState; dt: number; onWallDestroyed?: (owner: Team, wall: RuntimeWall) => void;
+  onExplosion?: (bomb: RuntimeBomb) => void };
 
 export interface DeployableDefinition {
   readonly id: DeployableId;
@@ -126,7 +128,7 @@ function bombPlacementValid(placement: Placement, context: PlacementContext, rad
   return true;
 }
 
-function tickBomb(entity: RuntimeEntity, { state, dt, onWallDestroyed }: TickContext): boolean {
+function tickBomb(entity: RuntimeEntity, { state, dt, onWallDestroyed, onExplosion }: TickContext): boolean {
   if (entity.kind !== 'bomb') return true;
   if (entity.phase === 'flying') return true;
   entity.fuseRemaining -= dt;
@@ -135,6 +137,7 @@ function tickBomb(entity: RuntimeEntity, { state, dt, onWallDestroyed }: TickCon
     id: entity.id, definitionId: entity.definitionId, position: { ...entity.position }, radius: entity.blastRadius,
     remaining: EXPLOSION_DURATION, duration: EXPLOSION_DURATION,
   });
+  onExplosion?.(entity);
   // A spatial event: nearest point on each wall footprint determines the hit.
   for (const wall of state.walls) {
     if (circleTouchesWall(entity.position, entity.blastRadius, wall)) {
@@ -176,7 +179,7 @@ function bombDefinition(id: BombType, label: string, size: 'primary' | 'secondar
     isValid: (placement, context) => bombPlacementValid(placement, context, config.physicalRadius),
     deploy: (entityId, owner, placement, origin): RuntimeBomb => ({
       kind: 'bomb', definitionId: id, id: entityId, owner,
-      origin: { ...origin }, target: { ...placement.position }, position: { ...origin }, height: 0,
+      origin: { ...origin }, originHeight: 0, target: { ...placement.position }, position: { ...origin }, height: 0,
       orientation: { x: 0, y: 0, z: 0, w: 1 }, phase: 'flying',
       velocity: { x: 0, z: 0 }, verticalVelocity: 0,
       travelDuration: Math.max(BOMB_THROW.minimumTravelTime,
@@ -203,8 +206,9 @@ export function createDeploymentState(arena: ArenaDefinition, startingInventory:
   };
 }
 
-export function tickDeploymentState(state: DeploymentState, dt: number, onWallDestroyed?: (owner: Team, wall: RuntimeWall) => void): void {
+export function tickDeploymentState(state: DeploymentState, dt: number, onWallDestroyed?: (owner: Team, wall: RuntimeWall) => void,
+  onExplosion?: (bomb: RuntimeBomb) => void): void {
   for (const explosion of state.explosions) explosion.remaining -= dt;
   state.explosions = state.explosions.filter(explosion => explosion.remaining > 0);
-  state.bombs = state.bombs.filter(bomb => DEPLOYABLES[bomb.definitionId].tick?.(bomb, { state, dt, onWallDestroyed }) !== false);
+  state.bombs = state.bombs.filter(bomb => DEPLOYABLES[bomb.definitionId].tick?.(bomb, { state, dt, onWallDestroyed, onExplosion }) !== false);
 }

@@ -16,17 +16,34 @@ export const BOMB_FLIGHT = {
 } as const;
 
 export function bombLaunch(origin: Vec2, target: Vec2, radius: number,
-  tuning: LaunchTuning = BASE_GAME_SETTINGS.projectiles.bomb): { position: FlightPoint; velocity: FlightPoint } {
+  tuning: LaunchTuning = BASE_GAME_SETTINGS.projectiles.bomb, walls: readonly RuntimeWall[] = [],
+  playerRadius = 0.38, originHeight = 0): { position: FlightPoint; velocity: FlightPoint } {
   const dx = target.x - origin.x;
   const dz = target.z - origin.z;
   const distance = Math.hypot(dx, dz);
   const travelTime = Math.max(BOMB_FLIGHT.minimumTime, Math.min(BOMB_FLIGHT.maximumTime, distance / BOMB_FLIGHT.speedDivisor));
-  const offset = distance > 0 ? BOMB_FLIGHT.startOffset / distance : 0;
+  const direction = distance > 0 ? { x: dx / distance, z: dz / distance } : { x: 0, z: 0 };
+  let offset = Math.min(BOMB_FLIGHT.startOffset, distance);
+  const safeHeight = (forward: number) => {
+    const separation = playerRadius + radius + 0.05;
+    return Math.max(BOMB_FLIGHT.startHeight, playerRadius + Math.sqrt(Math.max(0, separation ** 2 - forward ** 2)));
+  };
+  let startY = originHeight + safeHeight(offset);
+  // The usual hand offset can start a sphere inside a nearby wall. Retreat it
+  // toward the thrower before creating the rigid body, preserving its velocity.
+  while (walls.some(wall => sphereTouchesWall({ x: origin.x + direction.x * offset, y: startY,
+    z: origin.z + direction.z * offset }, radius, wall)) && offset > 0) {
+    offset = Math.max(0, offset - 0.025);
+    startY = originHeight + safeHeight(offset);
+  }
+  if (walls.some(wall => sphereTouchesWall({ x: origin.x, y: startY, z: origin.z }, radius, wall))) {
+    startY = Math.max(startY, WALL_HEIGHT + radius + 0.03);
+  }
   return {
-    position: { x: origin.x + dx * offset, y: BOMB_FLIGHT.startHeight, z: origin.z + dz * offset },
+    position: { x: origin.x + direction.x * offset, y: startY, z: origin.z + direction.z * offset },
     velocity: {
       x: dx / travelTime * tuning.throwForce / tuning.mass,
-      y: (radius - BOMB_FLIGHT.startHeight + BOMB_FLIGHT.gravity * travelTime * travelTime / 2) / travelTime * tuning.throwForce * tuning.lob / tuning.mass,
+      y: (radius - startY + BOMB_FLIGHT.gravity * travelTime * travelTime / 2) / travelTime * tuning.throwForce * tuning.lob / tuning.mass,
       z: dz / travelTime * tuning.throwForce / tuning.mass,
     },
   };
@@ -49,7 +66,7 @@ function firstContact(point: FlightPoint, radius: number, bounds: ArenaBounds,
   for (const team of ['red', 'blue'] as const) {
     if (team === thrower) continue;
     const other = players[team].position;
-    if (Math.hypot(point.x - other.x, point.y - playerRadius, point.z - other.z) <= radius + playerRadius)
+    if (Math.hypot(point.x - other.x, point.y - playerRadius - players[team].height, point.z - other.z) <= radius + playerRadius)
       return { kind: 'player', id: team };
   }
   for (const bomb of bombs) {
@@ -64,8 +81,8 @@ function firstContact(point: FlightPoint, radius: number, bounds: ArenaBounds,
 export function predictBombTrajectory(origin: Vec2, target: Vec2, radius: number, bounds: ArenaBounds,
   walls: readonly RuntimeWall[], players: Record<Team, PlayerState>, playerRadius: number,
   bombs: readonly RuntimeBomb[], thrower: Team,
-  tuning: LaunchTuning = BASE_GAME_SETTINGS.projectiles.bomb): BombTrajectory {
-  const launch = bombLaunch(origin, target, radius, tuning);
+  tuning: LaunchTuning = BASE_GAME_SETTINGS.projectiles.bomb, originHeight = 0): BombTrajectory {
+  const launch = bombLaunch(origin, target, radius, tuning, walls, playerRadius, originHeight);
   const points: FlightPoint[] = [{ ...launch.position }];
   const velocity = { ...launch.velocity };
   const dt = BOMB_FLIGHT.predictionStep;

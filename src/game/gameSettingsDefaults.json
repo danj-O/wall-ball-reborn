@@ -3,6 +3,8 @@
   "acceleration": 57,
   "braking": 56,
   "playerMass": 5.3,
+  "airControl": 0.25,
+  "airBraking": 0.02,
   "startingInventory": {
     "wall": 12,
     "bomb": 8
@@ -20,13 +22,19 @@
       "throwForce": 0.65,
       "lob": 2.3,
       "mass": 1,
-      "blastRadius": 2
+      "fuseSeconds": 2,
+      "blastRadius": 2,
+      "blastForce": 48,
+      "blastLift": 75
     },
     "mega-bomb": {
       "throwForce": 1.35,
       "lob": 1.9,
       "mass": 1.7,
-      "blastRadius": 4
+      "fuseSeconds": 2,
+      "blastRadius": 4,
+      "blastForce": 81,
+      "blastLift": 101
     }
   }
 }

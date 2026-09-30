@@ -30,7 +30,7 @@ test('touching a carrier returns the enemy flag to its base', () => {
   game.start();
   game.state.players.red.position = { ...arena.flagPositions.blue };
   game.update(1 / 60, idle);
-  game.state.players.blue.position = { ...game.state.players.red.position };
+  game.state.players.blue.position = { x: game.state.players.red.position.x + 0.8, z: game.state.players.red.position.z };
   game.update(1 / 60, idle);
   assert.equal(game.state.players.red.carrying, null);
   assert.equal(game.state.flags.blue.carrier, null);

@@ -1,5 +1,5 @@
 import { Body, Box, ContactMaterial, Material, Plane, Sphere, Vec3, World } from 'cannon-es';
-import { WALL_HEIGHT, type ArenaDefinition, type Team, type Vec2 } from './arena.ts';
+import { WALL_HEIGHT, type ArenaBounds, type ArenaDefinition, type Team, type Vec2 } from './arena.ts';
 import type { GameState } from './GameMode.ts';
 import { type DeploymentState, type RuntimeBomb, type RuntimeWall } from './deployables.ts';
 import { BOMB_FLIGHT, bombLaunch } from './trajectory.ts';
@@ -10,13 +10,18 @@ export class PhysicsWorld {
   readonly world = new World({ gravity: new Vec3(0, -BOMB_FLIGHT.gravity, 0) });
   private readonly players: Record<Team, Body>;
   private readonly walls = new Map<string, Body>();
+  private readonly verticalSolids = new Set<Body>();
   private readonly bombs = new Map<string, Body>();
   private readonly lastPlayerPosition: Record<Team, Vec2>;
+  private readonly bounds: ArenaBounds;
+  private readonly playerRadius: number;
   private readonly solid = new Material('arena');
   private readonly playerMaterial = new Material('player');
   private readonly bombMaterial = new Material('bomb');
 
   constructor(arena: ArenaDefinition, state: GameState, deployments: DeploymentState, playerRadius: number, playerMass = 4) {
+    this.bounds = arena.bounds;
+    this.playerRadius = playerRadius;
     this.world.allowSleep = true;
     this.world.addContactMaterial(new ContactMaterial(this.bombMaterial, this.solid, { friction: 0.55, restitution: 0.42 }));
     this.world.addContactMaterial(new ContactMaterial(this.bombMaterial, this.bombMaterial, { friction: 0.3, restitution: 0.62 }));
@@ -36,7 +41,9 @@ export class PhysicsWorld {
       [b.minX - 0.3, cz, 0.6, depth + 1.2], [b.maxX + 0.3, cz, 0.6, depth + 1.2],
       [cx, b.minZ - 0.3, width + 1.2, 0.6], [cx, b.maxZ + 0.3, width + 1.2, 0.6],
     ]) {
-      this.world.addBody(new Body({ mass: 0, material: this.solid, shape: new Box(new Vec3(sx / 2, 2, sz / 2)), position: new Vec3(x, 2, z) }));
+      const boundary = new Body({ mass: 0, material: this.solid, shape: new Box(new Vec3(sx / 2, 20, sz / 2)), position: new Vec3(x, 20, z) });
+      this.world.addBody(boundary);
+      this.verticalSolids.add(boundary);
     }
 
     this.players = {
@@ -50,15 +57,15 @@ export class PhysicsWorld {
   }
 
   private makePlayer(position: Vec2, radius: number, mass: number): Body {
-    const body = new Body({ mass, material: this.playerMaterial, shape: new Sphere(radius), position: new Vec3(position.x, radius, position.z), linearDamping: 0, fixedRotation: true });
-    body.linearFactor.set(1, 0, 1);
+    const body = new Body({ mass, material: this.playerMaterial, shape: new Sphere(radius),
+      position: new Vec3(position.x, radius, position.z), linearDamping: 0, fixedRotation: true });
     this.world.addBody(body);
     return body;
   }
 
   syncWalls(walls: readonly RuntimeWall[]): void {
     const ids = new Set(walls.map(wall => wall.id));
-    for (const [id, body] of this.walls) if (!ids.has(id)) { this.world.removeBody(body); this.walls.delete(id); }
+    for (const [id, body] of this.walls) if (!ids.has(id)) { this.world.removeBody(body); this.verticalSolids.delete(body); this.walls.delete(id); }
     for (const wall of walls) {
       if (this.walls.has(wall.id)) continue;
       const body = new Body({ mass: 0, material: this.solid,
@@ -68,11 +75,13 @@ export class PhysicsWorld {
       body.quaternion.setFromEuler(0, wall.rotation, 0);
       this.world.addBody(body);
       this.walls.set(wall.id, body);
+      this.verticalSolids.add(body);
     }
   }
 
-  addBomb(bomb: RuntimeBomb, tuning: Pick<ProjectileTuning, 'throwForce' | 'lob' | 'mass'> = BASE_GAME_SETTINGS.projectiles[bomb.definitionId]): void {
-    const launch = bombLaunch(bomb.origin, bomb.target, bomb.physicalRadius, tuning);
+  addBomb(bomb: RuntimeBomb, tuning: Pick<ProjectileTuning, 'throwForce' | 'lob' | 'mass'> = BASE_GAME_SETTINGS.projectiles[bomb.definitionId],
+    walls: readonly RuntimeWall[] = []): void {
+    const launch = bombLaunch(bomb.origin, bomb.target, bomb.physicalRadius, tuning, walls, this.playerRadius, bomb.originHeight);
     const body = new Body({ mass: tuning.mass, material: this.bombMaterial, shape: new Sphere(bomb.physicalRadius),
       position: new Vec3(launch.position.x, launch.position.y, launch.position.z),
       linearDamping: BOMB_FLIGHT.linearDamping, angularDamping: 0.35, sleepSpeedLimit: 0.08, sleepTimeLimit: 0.6,
@@ -107,7 +116,31 @@ export class PhysicsWorld {
     }
   }
 
-  step(dt: number, state: GameState, deployments: DeploymentState, input: Record<Team, Vec2>, speed: Record<Team, number>, acceleration: number, braking: number): void {
+  applyBlast(bomb: RuntimeBomb, tuning: Pick<ProjectileTuning, 'blastForce' | 'blastLift'>, state: GameState): void {
+    const centerY = bomb.height + bomb.physicalRadius;
+    for (const team of ['red', 'blue'] as const) {
+      const body = this.players[team];
+      const dx = body.position.x - bomb.position.x;
+      const dz = body.position.z - bomb.position.z;
+      const dy = body.position.y - centerY;
+      const distance = Math.hypot(dx, dy, dz);
+      if (distance >= bomb.blastRadius) continue;
+      const falloff = 1 - distance / bomb.blastRadius;
+      const horizontal = Math.hypot(dx, dz);
+      const force = tuning.blastForce * falloff;
+      body.applyImpulse(new Vec3(horizontal > 0.001 ? dx / horizontal * force : 0,
+        tuning.blastLift * falloff, horizontal > 0.001 ? dz / horizontal * force : 0));
+      const horizontalSpeed = Math.hypot(body.velocity.x, body.velocity.z);
+      if (horizontalSpeed > 35) {
+        body.velocity.x *= 35 / horizontalSpeed;
+        body.velocity.z *= 35 / horizontalSpeed;
+      }
+      body.velocity.y = Math.min(body.velocity.y, 30);
+      if (body.velocity.y > 0.2) state.players[team].airborne = true;
+    }
+  }
+
+  step(dt: number, state: GameState, deployments: DeploymentState, input: Record<Team, Vec2>, speed: Record<Team, number>, acceleration: number, braking: number, airControl: number, airBraking: number): void {
     this.syncWalls(deployments.walls);
     for (const team of ['red', 'blue'] as const) {
       const body = this.players[team];
@@ -115,7 +148,7 @@ export class PhysicsWorld {
       const last = this.lastPlayerPosition[team];
       // Editor/tests can reposition plain state; bring the matching rigid body with it.
       if (Math.hypot(player.position.x - last.x, player.position.z - last.z) > 0.001) {
-        body.position.set(player.position.x, body.shapes[0].boundingSphereRadius, player.position.z);
+        body.position.set(player.position.x, this.playerRadius + player.height, player.position.z);
         body.velocity.setZero();
         body.wakeUp();
       }
@@ -126,7 +159,9 @@ export class PhysicsWorld {
       const differenceX = targetX - body.velocity.x;
       const differenceZ = targetZ - body.velocity.z;
       const distance = Math.hypot(differenceX, differenceZ);
-      const change = Math.min(distance, (length > 0 ? acceleration : braking) * dt);
+      const airborne = body.position.y > this.playerRadius + 0.08 || body.velocity.y > 0.2;
+      const change = Math.min(distance, (length > 0 ? acceleration * (airborne ? airControl : 1)
+        : braking * (airborne ? airBraking : 1)) * dt);
       if (distance > 0) {
         body.velocity.x += differenceX / distance * change;
         body.velocity.z += differenceZ / distance * change;
@@ -134,10 +169,38 @@ export class PhysicsWorld {
       }
       if (length > 0) player.facing = Math.atan2(raw.x, raw.z);
     }
+    const incoming = {
+      red: this.players.red.velocity.clone(), blue: this.players.blue.velocity.clone(),
+    };
     this.world.step(1 / 120, dt, 3);
+    // Penetration correction can reverse a blast's horizontal velocity at a wall,
+    // even with zero restitution. Keep the vertical lift and tangential slide.
+    for (const contact of this.world.contacts) {
+      for (const team of ['red', 'blue'] as const) {
+        const player = this.players[team];
+        const other = contact.bi === player ? contact.bj : contact.bj === player ? contact.bi : null;
+        if (!other || !this.verticalSolids.has(other) || Math.abs(contact.ni.y) > 0.35) continue;
+        const sign = contact.bi === player ? 1 : -1;
+        const nx = contact.ni.x * sign;
+        const nz = contact.ni.z * sign;
+        const approaching = incoming[team].x * nx + incoming[team].z * nz;
+        const departing = player.velocity.x * nx + player.velocity.z * nz;
+        if (approaching >= -0.02 && departing < -0.02) {
+          player.velocity.x -= departing * nx;
+          player.velocity.z -= departing * nz;
+        }
+      }
+    }
     for (const team of ['red', 'blue'] as const) {
       const body = this.players[team];
+      const b = this.bounds;
+      if (body.position.x < b.minX + this.playerRadius) { body.position.x = b.minX + this.playerRadius; body.velocity.x = Math.max(0, body.velocity.x); }
+      if (body.position.x > b.maxX - this.playerRadius) { body.position.x = b.maxX - this.playerRadius; body.velocity.x = Math.min(0, body.velocity.x); }
+      if (body.position.z < b.minZ + this.playerRadius) { body.position.z = b.minZ + this.playerRadius; body.velocity.z = Math.max(0, body.velocity.z); }
+      if (body.position.z > b.maxZ - this.playerRadius) { body.position.z = b.maxZ - this.playerRadius; body.velocity.z = Math.min(0, body.velocity.z); }
       state.players[team].position = { x: body.position.x, z: body.position.z };
+      state.players[team].height = Math.max(0, body.position.y - this.playerRadius);
+      state.players[team].airborne = state.players[team].height > 0.08 || body.velocity.y > 0.2;
       this.lastPlayerPosition[team] = { ...state.players[team].position };
     }
     for (const bomb of deployments.bombs) {

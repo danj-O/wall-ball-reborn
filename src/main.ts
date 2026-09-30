@@ -75,7 +75,7 @@ app.innerHTML = `
       <div class="menu-heading"><span class="brand-mark">WB</span><div><strong>WALL BALL</strong><small id="mode-label">MATCH / CAPTURE THE FLAG</small></div></div>
       <div class="menu-actions"><button id="new-match-button" type="button">Start / New Match</button><button id="touch-toggle" type="button">Touch Controls</button><button id="edit-button" type="button">Customize Arena</button><button id="controls-button" type="button">Customize Controls</button><button id="game-settings-button" type="button" aria-expanded="false">Game Tuning</button><button id="appearance-button" type="button">Appearance</button><button id="reset-button" type="button">Return to Start</button><button id="fullscreen-button" type="button" aria-pressed="false">Enter Fullscreen</button></div>
       <div id="game-settings-panel" class="game-settings-panel" hidden>
-        <div class="section-kicker">GAME TUNING</div><p class="hint">Speed is units/sec; acceleration and braking are units/sec². Player and projectile weight affect collisions. Blast radius is in arena units. Starting supplies apply next match; generation rates and movement apply now. A regeneration value of 0 turns it off.</p>
+        <div class="section-kicker">GAME TUNING</div><p class="hint">Speed is units/sec; acceleration and braking are units/sec². Player weight changes blast response. Air steering/braking scale movement while aloft. Each bomb has its own fuse timer, starting on impact, plus separate blast push and lift. Blast radius is in arena units. Starting supplies apply next match; generation rates and movement apply now. A regeneration value of 0 turns it off.</p>
         <div id="game-settings-sliders"></div>
         <div class="editor-actions"><button id="reset-game-settings" type="button">Reset Tuning</button><button id="done-game-settings" type="button">Done</button></div>
         <div id="developer-game-defaults" class="developer-controls" hidden><button id="save-game-default" class="editor-wide-button" type="button">Save as Game Default</button><p class="hint">Developer mode: writes the preset used by new devices.</p><p id="game-default-status" class="control-default-status" role="status" aria-live="polite"></p></div>
@@ -534,7 +534,7 @@ controlsButton.addEventListener('click', () => {
 document.querySelector<HTMLButtonElement>('#done-controls')!.addEventListener('click', finishControlsCustomization);
 document.querySelector<HTMLButtonElement>('#reset-controls')!.addEventListener('click', () => touchController.resetLayout());
 
-type MovementTuningField = 'runSpeed' | 'acceleration' | 'braking' | 'playerMass';
+type MovementTuningField = 'runSpeed' | 'acceleration' | 'braking' | 'playerMass' | 'airControl' | 'airBraking';
 type ProjectileTuningField = keyof ProjectileTuning;
 type ResourceTuningField = 'startingInventory' | 'passiveRegenSeconds' | 'depotGenerationSeconds';
 type TuningRow =
@@ -546,6 +546,8 @@ const tuningRows: TuningRow[] = [
   { label: 'Start acceleration', field: 'acceleration' },
   { label: 'Stopping brake', field: 'braking' },
   { label: 'Player weight', field: 'playerMass' },
+  { label: 'Air steering', field: 'airControl' },
+  { label: 'Air braking', field: 'airBraking' },
   { label: 'Starting walls', field: 'startingInventory', resource: 'wall', groupStart: true },
   { label: 'Starting bombs', field: 'startingInventory', resource: 'bomb' },
   { label: 'Wall auto-regeneration (sec)', field: 'passiveRegenSeconds', resource: 'wall' },
@@ -559,7 +561,10 @@ const tuningRows: TuningRow[] = [
       { label: `${name} throw force`, kind, field: 'throwForce', groupStart: true },
       { label: `${name} lob`, kind, field: 'lob' },
       { label: `${name} weight`, kind, field: 'mass' },
+      { label: `${name} fuse timer (sec)`, kind, field: 'fuseSeconds' },
       { label: `${name} blast radius`, kind, field: 'blastRadius' },
+      { label: `${name} blast knockback`, kind, field: 'blastForce' },
+      { label: `${name} blast lift`, kind, field: 'blastLift' },
     ] satisfies TuningRow[]);
   }),
 ];

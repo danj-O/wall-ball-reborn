@@ -122,6 +122,7 @@ export function tickPowerUps(state: PowerUpState, arena: ArenaDefinition, walls:
   state.active = state.active.filter(pickup => pickup.remaining > 0);
   for (const pickup of [...state.active]) {
     const collectors = (['red', 'blue'] as const).filter(team =>
+      !players[team].airborne &&
       Math.hypot(players[team].position.x - pickup.position.x, players[team].position.z - pickup.position.z) <= POWER_UPS[pickup.definitionId].pickupRadius);
     if (collectors.length && collectPowerUp(state, pickup.id, collectors[0])) onCollect(collectors[0]);
   }

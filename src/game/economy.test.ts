@@ -142,7 +142,7 @@ test('territory theft rounds down and triggers once per enemy territory visit', 
   game.deployments.inventory.red = { wall: 7, bomb: 5 };
   game.deployments.inventory.blue = { wall: 1, bomb: 1 };
   game.state.players.red.position = { x: 10, z: 0 };
-  game.state.players.blue.position = { x: 10, z: 0 };
+  game.state.players.blue.position = { x: 10.8, z: 0 };
   game.update(1 / 60, idle);
   assert.deepEqual(game.deployments.inventory.red, { wall: 4, bomb: 3 });
   assert.deepEqual(game.deployments.inventory.blue, { wall: 4, bomb: 3 });

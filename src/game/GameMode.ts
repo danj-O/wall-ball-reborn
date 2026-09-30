@@ -1,6 +1,6 @@
 import type { ArenaDefinition, Team, Vec2 } from './arena.ts';
 
-export type PlayerState = { team: Team; position: Vec2; facing: number; carrying: Team | null };
+export type PlayerState = { team: Team; position: Vec2; height: number; airborne: boolean; facing: number; carrying: Team | null };
 export type FlagState = { team: Team; carrier: Team | null };
 export type GameState = {
   players: Record<Team, PlayerState>;

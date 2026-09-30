@@ -7,6 +7,8 @@ import { POWER_UP_CONFIG, POWER_UPS, type PowerUpPickup, type PowerUpState } fro
 import { CAMERA_SETTINGS, frameArena } from './camera.ts';
 import { DEFAULT_APPEARANCE, type AppearanceTheme } from './appearance.ts';
 
+const AIRBORNE_MARKER_COLOR = 0xffdf57;
+
 export class ArenaView {
   readonly renderer: THREE.WebGLRenderer;
   readonly camera: THREE.PerspectiveCamera;
@@ -22,6 +24,7 @@ export class ArenaView {
   private readonly powerRegionGroup = new THREE.Group();
   private readonly pickupGroup = new THREE.Group();
   private playerGroups: Record<Team, THREE.Group>;
+  private readonly groundMarkers: Record<Team, { group: THREE.Group; ring: THREE.Mesh; stem: THREE.Mesh }>;
   private flagGroups: Record<Team, THREE.Group>;
   private readonly wallMeshes = new Map<string, THREE.Mesh>();
   private readonly depotMeshes = new Map<string, THREE.Mesh>();
@@ -95,6 +98,7 @@ export class ArenaView {
     this.scene.add(this.tabletop);
 
     this.playerGroups = { red: this.makePlayer('red'), blue: this.makePlayer('blue') };
+    this.groundMarkers = { red: this.makeGroundMarker('red'), blue: this.makeGroundMarker('blue') };
     this.flagGroups = { red: this.makeFlag('red'), blue: this.makeFlag('blue') };
     this.rebuildArena(arena);
     new ResizeObserver(() => this.resize(container, this.currentArena)).observe(container);
@@ -129,6 +133,8 @@ export class ArenaView {
       this.disposeChildren(this.flagGroups[team]);
       this.playerGroups[team] = this.makePlayer(team);
       this.flagGroups[team] = this.makeFlag(team);
+      (this.groundMarkers[team].ring.material as THREE.MeshBasicMaterial).color.set(theme[team]);
+      (this.groundMarkers[team].stem.material as THREE.MeshBasicMaterial).color.set(theme[team]);
     }
     for (const group of this.bombGroups.values()) {
       this.deployGroup.remove(group);
@@ -185,6 +191,21 @@ export class ArenaView {
     }
     this.scene.add(group);
     return group;
+  }
+
+  private makeGroundMarker(team: Team): { group: THREE.Group; ring: THREE.Mesh; stem: THREE.Mesh } {
+    const group = new THREE.Group();
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.075, 8, 40),
+      new THREE.MeshBasicMaterial({ color: this.theme[team], transparent: true, opacity: 0.7, depthWrite: false }));
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.045;
+    group.add(ring);
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 6),
+      new THREE.MeshBasicMaterial({ color: this.theme[team], transparent: true, opacity: 0.45, depthWrite: false }));
+    stem.visible = false;
+    group.add(stem);
+    this.scene.add(group);
+    return { group, ring, stem };
   }
 
   private makeFlag(team: Team): THREE.Group {
@@ -497,6 +518,15 @@ export class ArenaView {
     ring.position.y = 0.025;
     ring.name = 'danger-ring';
     group.add(ring);
+    const pulse = new THREE.Mesh(
+      new THREE.RingGeometry(0.93, 1, 64),
+      new THREE.MeshBasicMaterial({ color: mega ? 0xffc6fb : 0xffd276, transparent: true,
+        opacity: 0.72, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    pulse.rotation.x = -Math.PI / 2;
+    pulse.position.y = 0.04;
+    pulse.name = 'fuse-pulse';
+    group.add(pulse);
     group.position.set(bomb.target.x, 0, bomb.target.z);
     this.deployGroup.add(group);
     return group;
@@ -548,12 +578,27 @@ export class ArenaView {
       const ring = group.getObjectByName('danger-ring');
       if (ring) ring.position.y = 0.025;
       const lit = bomb.phase === 'lit';
+      const pulse = group.getObjectByName('fuse-pulse') as THREE.Mesh | undefined;
+      if (pulse) {
+        pulse.visible = lit;
+        if (lit) {
+          const beatPeriod = Math.min(1, bomb.fuseDuration);
+          const beatAge = Math.max(0, bomb.fuseDuration - bomb.fuseRemaining) % beatPeriod;
+          const travel = Math.min(1, beatAge / (beatPeriod * 0.82));
+          pulse.scale.setScalar(0.12 + (bomb.blastRadius - 0.12) * travel);
+          (pulse.material as THREE.MeshBasicMaterial).opacity = 0.72 * (1 - travel * 0.45);
+        }
+      }
       const ember = group.getObjectByName('ember');
       if (ember) {
         ember.visible = lit;
         if (lit) ember.scale.setScalar(0.8 + 0.4 * Math.sin((1 - bomb.fuseRemaining / bomb.fuseDuration) * 28));
       }
-      if (ring) ring.visible = lit;
+      if (ring) {
+        ring.visible = lit;
+        ((ring as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity =
+          0.5 + 0.22 * (1 - bomb.fuseRemaining / bomb.fuseDuration);
+      }
     }
     const explosionIds = new Set(deployments.explosions.map(explosion => explosion.id));
     for (const [id, group] of this.explosionGroups) {
@@ -721,8 +766,21 @@ export class ArenaView {
       const player = this.playerGroups[team];
       const data = state.players[team];
       player.visible = !editing;
-      player.position.set(data.position.x, 0, data.position.z);
+      player.position.set(data.position.x, data.height, data.position.z);
       player.rotation.y = data.facing;
+      const marker = this.groundMarkers[team];
+      marker.group.visible = !editing;
+      marker.group.position.set(data.position.x, 0, data.position.z);
+      const height = Math.max(0, data.height);
+      const airborne = data.airborne || height > 0.08;
+      marker.ring.scale.setScalar(airborne ? Math.max(0.48, 0.72 / (1 + height * 0.38)) : 1);
+      const ringMaterial = marker.ring.material as THREE.MeshBasicMaterial;
+      ringMaterial.color.set(airborne ? AIRBORNE_MARKER_COLOR : this.theme[team]);
+      ringMaterial.opacity = airborne ? 0.96 : 0.7;
+      (marker.stem.material as THREE.MeshBasicMaterial).color.set(AIRBORNE_MARKER_COLOR);
+      marker.stem.visible = height > 0.15;
+      marker.stem.scale.y = height;
+      marker.stem.position.y = height / 2 + 0.045;
       const speed = player.getObjectByName('speed-effect');
       if (speed) {
         speed.visible = powerUps.players[team].speedRemaining > 0;
@@ -747,7 +805,7 @@ export class ArenaView {
         const holder = state.players[carrier];
         const sideX = Math.cos(holder.facing) * 0.5 - Math.sin(holder.facing) * 0.25;
         const sideZ = -Math.sin(holder.facing) * 0.5 - Math.cos(holder.facing) * 0.25;
-        flag.position.set(holder.position.x + sideX, 0.34, holder.position.z + sideZ);
+        flag.position.set(holder.position.x + sideX, holder.height + 0.34, holder.position.z + sideZ);
       } else {
         const p = arena.flagPositions[team];
         flag.position.set(p.x, 0.3, p.z);
