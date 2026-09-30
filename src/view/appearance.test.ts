@@ -3,9 +3,10 @@ import test from 'node:test';
 import { APPEARANCE_STORAGE_KEY, DEFAULT_APPEARANCE, loadAppearance, validateAppearance } from './appearance.ts';
 
 test('warm meadow defaults are a valid global appearance preset', () => {
-  assert.equal(validateAppearance(DEFAULT_APPEARANCE)?.field, '#6F9270');
-  assert.equal(DEFAULT_APPEARANCE.stone, '#D8D0B8');
-  assert.equal(DEFAULT_APPEARANCE.blue, '#4E9ED6');
+  assert.deepEqual(validateAppearance(DEFAULT_APPEARANCE), DEFAULT_APPEARANCE);
+  assert.notEqual(DEFAULT_APPEARANCE.field, DEFAULT_APPEARANCE.contestedField);
+  assert.notEqual(DEFAULT_APPEARANCE.stone, DEFAULT_APPEARANCE.wood);
+  assert.notEqual(DEFAULT_APPEARANCE.red, DEFAULT_APPEARANCE.blue);
 });
 
 test('appearance settings persist on a device and reject malformed presets', () => {

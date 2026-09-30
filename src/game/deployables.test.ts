@@ -17,15 +17,15 @@ test('successful wall and bomb deployment spend only their own inventory', () =>
   const wallPreview = game.updateDeployAim('red', 'wall', { x: 1, z: 0 }, 0.6);
   assert.equal(wallPreview?.valid, true);
   assert.equal(game.releaseDeployAim('red', 'wall'), 'placed');
-  assert.equal(game.deployments.inventory.red.wall, DEPLOYABLES.wall.initialInventory - 1);
-  assert.equal(game.deployments.inventory.red.bomb, 2);
+  assert.equal(game.deployments.inventory.red.wall, game.settings.startingInventory.wall - 1);
+  assert.equal(game.deployments.inventory.red.bomb, game.settings.startingInventory.bomb);
   assert.equal(game.deployments.walls.at(-1)?.owner, 'red');
   assert.equal(game.deployments.walls.at(-1)?.hp, WALL_TYPES.wood.maxHealth);
 
   game.beginDeployAim('red', 'bomb');
   assert.equal(game.updateDeployAim('red', 'bomb', { x: 0, z: -1 }, 0.5)?.valid, true);
   assert.equal(game.releaseDeployAim('red', 'bomb'), 'placed');
-  assert.equal(game.deployments.inventory.red.bomb, 1);
+  assert.equal(game.deployments.inventory.red.bomb, game.settings.startingInventory.bomb - 1);
   assert.equal(game.deployments.bombs.length, 1);
 });
 
@@ -35,7 +35,7 @@ test('relative aim returning to center cancels without spending inventory', () =
   assert.ok(game.updateDeployAim('red', 'wall', { x: 1, z: 0 }, 0.7));
   assert.equal(game.updateDeployAim('red', 'wall', { x: 0, z: 0 }, 0), null);
   assert.equal(game.releaseDeployAim('red', 'wall'), 'cancelled');
-  assert.equal(game.deployments.inventory.red.wall, DEPLOYABLES.wall.initialInventory);
+  assert.equal(game.deployments.inventory.red.wall, game.settings.startingInventory.wall);
   assert.equal(game.deployments.walls.length, DEFAULT_ARENA.walls.length);
 });
 
@@ -51,7 +51,7 @@ test('bomb throw distance follows aim magnitude and cancel threshold', () => {
   assert.equal(far.position.x, BOMB_THROW.maximumDistance);
   game.updateDeployAim('red', 'bomb', { x: 0, z: 0 }, 0);
   assert.equal(game.releaseDeployAim('red', 'bomb'), 'cancelled');
-  assert.equal(game.deployments.inventory.red.bomb, 2);
+  assert.equal(game.deployments.inventory.red.bomb, game.settings.startingInventory.bomb);
 });
 
 test('wall and bomb aim sessions remain independent for both players', () => {
@@ -143,12 +143,12 @@ test('invalid wall overlap and invalid bomb placement spend nothing', () => {
   assert.equal(game.releaseDeployAim('red', 'wall'), 'placed');
   assert.equal(preview()?.valid, false);
   assert.equal(game.releaseDeployAim('red', 'wall'), 'invalid');
-  assert.equal(game.deployments.inventory.red.wall, DEPLOYABLES.wall.initialInventory - 1);
+  assert.equal(game.deployments.inventory.red.wall, game.settings.startingInventory.wall - 1);
   game.state.players.red.position = { x: 23, z: 0 };
   game.beginDeployAim('red', 'bomb');
   assert.equal(game.updateDeployAim('red', 'bomb', { x: 1, z: 0 }, 1)?.valid, false);
   assert.equal(game.releaseDeployAim('red', 'bomb'), 'invalid');
-  assert.equal(game.deployments.inventory.red.bomb, 2);
+  assert.equal(game.deployments.inventory.red.bomb, game.settings.startingInventory.bomb);
 });
 
 test('wall footprints reject static walls, bases, players and arena borders', () => {

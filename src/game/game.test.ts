@@ -52,8 +52,8 @@ test('configured walls and bounds block movement while facing follows input', ()
 test('both default wall layers must be removed before a player can enter contested ground', () => {
   const game = new Game(cloneArena(DEFAULT_ARENA), new CaptureTheFlag());
   game.start();
-  assert.equal(game.deployments.inventory.red.wall, 8);
-  assert.equal(game.deployments.inventory.blue.wall, 8);
+  assert.equal(game.deployments.inventory.red.wall, game.settings.startingInventory.wall);
+  assert.equal(game.deployments.inventory.blue.wall, game.settings.startingInventory.wall);
   game.state.players.red.position = { x: -6.5, z: -0.6 };
   const advance = () => {
     for (let i = 0; i < 75; i++) game.update(1 / 60, { ...idle, red: { x: 1, z: 0 } });

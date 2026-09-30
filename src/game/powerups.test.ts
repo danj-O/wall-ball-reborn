@@ -153,7 +153,7 @@ test('Mega Bomb pickup grants a charge; cancel keeps it and successful throw spe
   assert.equal(game.releaseDeployAim('red', 'mega-bomb'), 'placed');
   assert.equal(game.powerUps.players.red.charges['mega-bomb'], 0);
   assert.equal(game.deployments.bombs.at(-1)?.definitionId, 'mega-bomb');
-  assert.equal(game.deployments.inventory.red.bomb, 2);
+  assert.equal(game.deployments.inventory.red.bomb, game.settings.startingInventory.bomb);
 });
 
 test('Mega Bomb uses configured 4-unit blast and wood/stone damage', () => {

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { cloneArena, BASE_ARENA as DEFAULT_ARENA, migrateArena, WALL_TYPES } from './arena.ts';
 import { CaptureTheFlag } from './CaptureTheFlag.ts';
 import { BOMB_DAMAGE, BOMB_FUSE, createDeploymentState, DEPLOYABLES, tickDeploymentState, type RuntimeBomb } from './deployables.ts';
-import { createEconomyState, ECONOMY_CONFIG, tickEconomy, transferOnTerritoryTag } from './economy.ts';
+import { createEconomyState, tickEconomy, transferOnTerritoryTag } from './economy.ts';
 import { Game } from './Game.ts';
 
 const idle = { red: { x: 0, z: 0 }, blue: { x: 0, z: 0 } };
@@ -19,16 +19,17 @@ function run(game: Game, seconds: number): void {
 
 test('passive bombs regenerate independently, including from zero', () => {
   const { game } = setup();
+  const interval = game.settings.passiveRegenSeconds.bomb;
   game.deployments.inventory.red.bomb = 0;
-  run(game, 9.9);
+  run(game, interval - 0.1);
   assert.equal(game.deployments.inventory.red.bomb, 0);
   run(game, 0.2);
   assert.equal(game.deployments.inventory.red.bomb, 1);
-  assert.equal(game.deployments.inventory.blue.bomb, DEPLOYABLES.bomb.initialInventory + 1);
-  run(game, 10);
+  assert.equal(game.deployments.inventory.blue.bomb, game.settings.startingInventory.bomb + 1);
+  run(game, interval);
   assert.equal(game.deployments.inventory.red.bomb, 2);
   game.reset();
-  assert.equal(game.economy.passiveBombRemaining.red, ECONOMY_CONFIG.passiveBombInterval);
+  assert.equal(game.economy.passiveBombRemaining.red, interval);
 });
 
 test('wall and bomb depots generate on their own schedules and cap stock', () => {
@@ -67,12 +68,12 @@ test('depot collection transfers all available stock without changing saved aren
   depot.stock = 3;
   game.state.players.red.position = { ...depot.position };
   tickEconomy(game.economy, game.deployments, game.state.players, 0);
-  assert.equal(game.deployments.inventory.red.wall, DEPLOYABLES.wall.initialInventory + 3);
+  assert.equal(game.deployments.inventory.red.wall, game.settings.startingInventory.wall + 3);
   assert.equal(depot.stock, 0);
   const bombDepot = game.economy.depots.find(d => d.type === 'bomb')!;
   game.state.players.red.position = { ...bombDepot.position };
   tickEconomy(game.economy, game.deployments, game.state.players, 0);
-  assert.equal(game.deployments.inventory.red.bomb, DEPLOYABLES.bomb.initialInventory + 1);
+  assert.equal(game.deployments.inventory.red.bomb, game.settings.startingInventory.bomb + 1);
   assert.equal(bombDepot.stock, 0);
   assert.deepEqual(arena, original);
 });
