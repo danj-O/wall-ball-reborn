@@ -388,7 +388,7 @@ window.setInterval(async () => {
     `Path ${stats.transport} · room ${stats.connection} · RTT ${stats.rttMs?.toFixed(0) ?? '?'} ms · state ${sendRate}/s · sent ${stats.sent} · received ${stats.received} · buffered ${stats.buffered} B`;
 }, 500);
 document.addEventListener('visibilitychange', () => { if (document.hidden) cancelPointers(); });
-window.addEventListener('pagehide', cancelPointers);
+window.addEventListener('pagehide', () => { cancelPointers(); link.disconnect(); });
 
 const zoomGuard = new DoubleTapZoomGuard();
 const point = (touch: Touch | null) => touch ? { identifier: touch.identifier, x: touch.clientX, y: touch.clientY } : null;

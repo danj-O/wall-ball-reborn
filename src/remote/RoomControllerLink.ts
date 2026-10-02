@@ -123,6 +123,11 @@ export class RoomControllerLink {
       this.callbacks.status('FAILED');
       return;
     }
+    if (this.role === 'phone' && message.type === 'removed') {
+      this.failureReason = 'Host disconnected this controller';
+      this.disconnect();
+      return;
+    }
     if (message.type === 'signal' && (message.seat === 'red' || message.seat === 'blue')) {
       const signal = parseSignalPayload(message.payload);
       if (signal && (this.role === 'host' ? this.seats.has(message.seat) : this.team === message.seat)) {
@@ -144,7 +149,7 @@ export class RoomControllerLink {
         return;
       }
       if (message.type === 'peer-left') {
-        if (this.peers[seat]?.ready) return;
+        if (this.peers[seat]?.ready && message.final !== true) return;
         this.closeDirect(seat);
         this.onJoinRequest(seat, false);
         if (this.seats.delete(seat)) this.callbacks.disconnected(seat);
@@ -181,6 +186,13 @@ export class RoomControllerLink {
 
   approveJoin(team: Team): void { if (this.role === 'host') this.sendRaw({ v: 1, type: 'approve', seat: team }); }
   rejectJoin(team: Team): void { if (this.role === 'host') this.sendRaw({ v: 1, type: 'reject', seat: team }); }
+  disconnectSeat(team: Team): boolean {
+    if (this.role !== 'host' || !this.seats.has(team) ||
+        !this.sendRaw({ v: 1, type: 'remove-seat', seat: team })) return false;
+    this.dropSeat(team);
+    this.callbacks.status(this.seats.size ? 'CONNECTED' : 'WAITING FOR PHONE');
+    return true;
+  }
   private sendRaw(message: unknown, maxBuffer = Number.POSITIVE_INFINITY): boolean {
     if (this.socket?.readyState !== WebSocket.OPEN || this.socket.bufferedAmount > maxBuffer) return false;
     this.socket.send(JSON.stringify(message)); this.sent++; return true;
@@ -219,6 +231,7 @@ export class RoomControllerLink {
   }
   disconnect(): void {
     ++this.generation;
+    if (this.role === 'phone' && this.team) this.sendRaw({ v: 1, type: 'leave' });
     for (const seat of ['red', 'blue'] as const) this.closeDirect(seat);
     const active = [...this.seats];
     const phoneTeam = this.team;

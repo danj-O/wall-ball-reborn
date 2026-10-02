@@ -85,10 +85,11 @@ app.innerHTML = `
         <div class="section-kicker">REMOTE CONTROLLERS · EXPERIMENT</div>
         <p class="hint">This device runs the match. Red and Blue phones join separate seats in the same room; unused seats stay playable here.</p>
         <p class="remote-steps"><strong>1.</strong> Open <a id="controller-url" target="_blank" rel="noopener"></a> on each phone.<br><strong>2.</strong> Create one room here. Each phone enters the same code and chooses Red or Blue.<br><strong>3.</strong> Accept each seat request here.</p>
+        <button id="switch-to-controller" type="button">Use This Device as a Controller</button>
         <div class="editor-actions"><button id="create-room" type="button">Create Room</button><button id="remote-disconnect" type="button">Close Room</button></div>
         <div id="room-code" class="room-code" aria-live="polite">— — — — — — — —</div>
-        <div class="remote-seat" data-seat="red"><strong>RED SEAT</strong><span id="remote-status-red" role="status">EMPTY</span><div id="remote-approval-red" class="editor-actions" hidden><button id="approve-phone-red" type="button">Accept Red Phone</button><button id="reject-phone-red" type="button">Decline</button></div><pre id="remote-diagnostics-red"></pre></div>
-        <div class="remote-seat" data-seat="blue"><strong>BLUE SEAT</strong><span id="remote-status-blue" role="status">EMPTY</span><div id="remote-approval-blue" class="editor-actions" hidden><button id="approve-phone-blue" type="button">Accept Blue Phone</button><button id="reject-phone-blue" type="button">Decline</button></div><pre id="remote-diagnostics-blue"></pre></div>
+        <div class="remote-seat" data-seat="red"><strong>RED SEAT</strong><span id="remote-status-red" role="status">EMPTY</span><div id="remote-approval-red" class="editor-actions" hidden><button id="approve-phone-red" type="button">Accept Red Phone</button><button id="reject-phone-red" type="button">Decline</button></div><button id="disconnect-phone-red" type="button" hidden>Disconnect Red Phone</button><pre id="remote-diagnostics-red"></pre></div>
+        <div class="remote-seat" data-seat="blue"><strong>BLUE SEAT</strong><span id="remote-status-blue" role="status">EMPTY</span><div id="remote-approval-blue" class="editor-actions" hidden><button id="approve-phone-blue" type="button">Accept Blue Phone</button><button id="reject-phone-blue" type="button">Decline</button></div><button id="disconnect-phone-blue" type="button" hidden>Disconnect Blue Phone</button><pre id="remote-diagnostics-blue"></pre></div>
         <p id="remote-status" role="status">NEW</p>
       </div>
       <div id="game-settings-panel" class="game-settings-panel" hidden>
@@ -932,6 +933,10 @@ const remoteApproval: Record<Team, HTMLElement> = {
   red: document.querySelector<HTMLElement>('#remote-approval-red')!,
   blue: document.querySelector<HTMLElement>('#remote-approval-blue')!,
 };
+const seatDisconnect: Record<Team, HTMLButtonElement> = {
+  red: document.querySelector<HTMLButtonElement>('#disconnect-phone-red')!,
+  blue: document.querySelector<HTMLButtonElement>('#disconnect-phone-blue')!,
+};
 const roomStatus = document.querySelector<HTMLElement>('#remote-status')!;
 const createRoomButton = document.querySelector<HTMLButtonElement>('#create-room')!;
 if (!relayUrl()) { roomStatus.textContent = 'Remote relay unavailable in this build'; createRoomButton.disabled = true; }
@@ -945,12 +950,14 @@ remoteLink = new RoomControllerLink('host', {
     remoteInputs[team].connect(team, performance.now());
     refreshRemoteOwnership();
     remoteStatus[team].textContent = 'PHONE CONNECTED';
+    seatDisconnect[team].hidden = false;
   },
   disconnected: team => {
     const wasOwned = remoteOwned(team);
     remoteInputs[team].disconnect();
     refreshRemoteOwnership();
     remoteStatus[team].textContent = 'EMPTY · local controls available';
+    seatDisconnect[team].hidden = true;
     if (wasOwned) {
       gameToast.textContent = `${team.toUpperCase()} CONTROLLER DISCONNECTED · local controls restored`;
       toastUntil = performance.now() + 3000;
@@ -967,6 +974,9 @@ remoteLink.onJoinRequest = (team, pending) => {
   else if (!remoteLink.isSeatConnected(team)) remoteStatus[team].textContent = 'EMPTY';
 };
 for (const team of ['red', 'blue'] as const) {
+  seatDisconnect[team].addEventListener('click', () => {
+    if (!remoteLink.disconnectSeat(team)) roomStatus.textContent = 'Could not disconnect seat; close and recreate the room';
+  });
   document.querySelector<HTMLButtonElement>(`#approve-phone-${team}`)!.addEventListener('click', () => {
     remoteApproval[team].hidden = true;
     remoteLink.approveJoin(team);
@@ -982,6 +992,11 @@ const remoteButton = document.querySelector<HTMLButtonElement>('#remote-button')
 const controllerLink = document.querySelector<HTMLAnchorElement>('#controller-url')!;
 controllerLink.href = new URL('./?controller=1', location.href).href;
 controllerLink.textContent = controllerLink.href;
+document.querySelector<HTMLButtonElement>('#switch-to-controller')!.addEventListener('click', () => {
+  if (remoteLink.isConnected && !window.confirm('Switching this device closes its hosted game room. Continue?')) return;
+  remoteLink.disconnect();
+  location.assign(controllerLink.href);
+});
 remoteButton.addEventListener('click', () => {
   remotePanel.hidden = !remotePanel.hidden;
   remoteButton.setAttribute('aria-expanded', String(!remotePanel.hidden));

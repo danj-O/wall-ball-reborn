@@ -96,6 +96,12 @@ export class Room extends DurableObject<Env> {
       } else if (message.type === 'reject' && phoneState?.role === 'phone' && !phoneState.approved) {
         reply(phone, { type: 'error', reason: 'Host declined the request' });
         phone.close(1000, 'Host declined');
+      } else if (message.type === 'remove-seat' && phoneState?.role === 'phone' && phoneState.approved) {
+        // Free this seat immediately so a replacement can join the same room.
+        phone.serializeAttachment(null);
+        reply(phone, { type: 'removed' });
+        phone.close(1000, 'Host disconnected this controller');
+        reply(socket, { type: 'peer-left', seat: message.seat, final: true });
       } else if (message.type === 'signal' && phoneState?.role === 'phone' && phoneState.approved) {
         const signal = parseSignalPayload(message.payload);
         if (signal?.kind === 'candidate' || signal?.description.type === 'offer') {
@@ -109,6 +115,11 @@ export class Room extends DurableObject<Env> {
         const encoded = JSON.stringify(payload);
         if (encoded.length <= 1024) phone.send(encoded);
       }
+    } else if (message.type === 'leave') {
+      socket.serializeAttachment(null);
+      socket.close(1000, 'Controller left');
+      const host = this.host();
+      if (host) reply(host, { type: 'peer-left', seat: attachment.seat, final: true });
     } else if (attachment.approved) {
       const host = this.host();
       if (host && message.type === 'signal') {

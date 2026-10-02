@@ -41,6 +41,10 @@ button.selected, button[aria-pressed="true"] { border-color: #e3b876; background
 .remote-panel select, .remote-panel textarea { width: 100%; padding: 8px; border: 1px solid #94ad9b; border-radius: 6px; background: #10231d; color: #f5f5ec; font: 12px ui-monospace, monospace; touch-action: manipulation; user-select: text; -webkit-user-select: text; }
 .remote-panel textarea { min-height: 65px; resize: vertical; touch-action: pan-y; }
 .remote-panel > button { width: 100%; }
+.remote-seat { margin: 10px 0; padding: 10px; border: 1px solid #587168; border-radius: 8px; }
+.remote-seat > strong { margin-right: 6px; }
+.remote-seat > button { display: block; width: 100%; margin-top: 8px; border-color: #cf9a79; font-size: 11px; font-weight: 800; }
+.remote-seat > button[hidden] { display: none; }
 .remote-steps { margin: 8px 0 13px; color: #e7eee0; font-size: 12px; line-height: 1.65; }
 .remote-steps strong { color: #f3ca80; }
 .remote-steps a { color: #a9ddff; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }

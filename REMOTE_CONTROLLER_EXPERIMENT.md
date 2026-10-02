@@ -1,6 +1,6 @@
 # Experimental phone controllers: one room, two seats
 
-The host device alone runs Wall Ball simulation. One Red phone and one Blue phone can join the same room; either seat may instead use host-device controls. Cloudflare owns room codes, approvals, and WebRTC signaling. After approval, each phone attempts a direct WebRTC connection to the host. The existing WebSocket relay carries controls only while direct transport is unavailable. This experiment is on `phone-controller-test`; the current Pages workflow deploys only `main`.
+The host device alone runs Wall Ball simulation. One Red phone and one Blue phone can join the same room; either seat may instead use host-device controls. Cloudflare owns room codes, approvals, and WebRTC signaling. After approval, each phone attempts a direct WebRTC connection to the host. The existing WebSocket relay carries controls only while direct transport is unavailable. The Pages workflow deploys `main`.
 
 ## Local test
 
@@ -8,7 +8,7 @@ The host device alone runs Wall Ball simulation. One Red phone and one Blue phon
 2. Open the game on the host at the Vite URL. On each phone, open the same Vite site with `?controller=1` (use the computer's LAN address, not `localhost` on the phone).
 3. On the host, open **Menu → Remote Controller** and tap **Create Room** once. Both phones enter the same 8-character code, choose different Red/Blue seats, and tap **Join Room**.
 4. Accept each seat request on the host. The host and phone diagnostics should change from **Path RELAY** to **Path DIRECT** when WebRTC opens. A rejected request or occupied seat cannot send controls. If a phone leaves, that seat returns to local host controls while the other phone keeps playing.
-5. A stalled phone stream releases movement and held aims after 650 ms without closing the room. Fresh input resumes play. Closing the room disconnects both phones.
+5. A stalled phone stream releases movement and held aims after 650 ms without closing the room. Fresh input resumes play. The host can disconnect either seat independently if a phone is stuck or gone; that seat returns to local controls and a replacement phone can request it. Closing the room disconnects both phones.
 
 Local development assumes `ws://<game hostname>:8787`. If Wrangler uses another port, set `VITE_CONTROLLER_RELAY_URL` to the actual public WebSocket address and restart Vite. WebRTC uses the built-in public STUN URL unless `VITE_CONTROLLER_STUN_URL` is set. For iPad home-screen testing, use an HTTPS game preview and a WSS relay.
 
@@ -21,8 +21,10 @@ On the Vite development server, each phone controller has **Customize Controls**
 ## Hosted test
 
 1. The Cloudflare Worker and Durable Object are deployed at `https://wall-ball-controller-relay.wall-ball-reborn.workers.dev`. To publish a later relay change, run `npm run relay:deploy` while signed in to Cloudflare. Verify the endpoint with `RELAY_SMOKE_URL=https://wall-ball-controller-relay.wall-ball-reborn.workers.dev npm run relay:smoke`.
-2. Set GitHub repository variable `CONTROLLER_RELAY_URL` to `wss://wall-ball-controller-relay.wall-ball-reborn.workers.dev`. The Pages build passes it to Vite. Merge this branch into `main` and push; the Pages workflow deploys `main` only.
+2. Set GitHub repository variable `CONTROLLER_RELAY_URL` to `wss://wall-ball-controller-relay.wall-ball-reborn.workers.dev`. The Pages build passes it to Vite. Push to `main` or manually run the Pages workflow to deploy the browser changes.
 3. Open the same HTTPS game build on host and both phones. The phone path is `https://danj-O.github.io/wall-ball-reborn/?controller=1` once this branch reaches Pages.
+
+An installed home-screen app may launch at the game page. On the phone, open **Menu → Remote Controller → Use This Device as a Controller** to switch within the same app window. Leaving the controller page explicitly releases its seat when the browser sends a page-hide event. If a browser is killed without that event, the host can use the seat's **Disconnect Phone** button.
 
 If the production relay URL is absent, room creation/joining is disabled. Normal host controls still work.
 
