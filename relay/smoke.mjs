@@ -1,8 +1,9 @@
 // Run against `npm run relay:dev`. No game server or credentials are needed.
 const base = process.env.RELAY_SMOKE_URL ?? 'http://127.0.0.1:8787';
-const created = await fetch(`${base}/rooms`, { method: 'POST' });
+const created = await fetch(`${base}/rooms?format=pin4`, { method: 'POST' });
 if (!created.ok) throw new Error(`Create room: HTTP ${created.status}`);
 const { code, token } = await created.json();
+if (!/^\d{4}$/.test(code)) throw new Error(`Expected a four-digit room code, got ${code}`);
 const wsBase = base.replace(/^http/, 'ws');
 function connect(query) {
   return new Promise((resolve, reject) => {
@@ -79,5 +80,15 @@ const hostLeft = blueNext();
 host.close();
 assertEqual((await hostLeft).type, 'peer-left', 'host close reaches blue');
 blue.close();
-console.log('Relay smoke passed: one room, two seats, WebRTC signaling, isolated input, targeted feedback, host seat removal and replacement, independent disconnects');
+const legacyCreated = await fetch(`${base}/rooms`, { method: 'POST' });
+if (!legacyCreated.ok) throw new Error(`Create legacy room: HTTP ${legacyCreated.status}`);
+const legacy = await legacyCreated.json();
+if (!/^[A-HJ-NP-Z2-9]{8}$/.test(legacy.code)) throw new Error(`Expected a legacy room code, got ${legacy.code}`);
+const legacyHost = await new Promise((resolve, reject) => {
+  const socket = new WebSocket(`${wsBase}/rooms/${legacy.code}/ws?role=host&token=${legacy.token}`);
+  socket.addEventListener('open', () => resolve(socket), { once: true });
+  socket.addEventListener('error', reject, { once: true });
+});
+legacyHost.close();
+console.log('Relay smoke passed: four-digit room with two seats, signaling, input, seat replacement, and legacy room compatibility');
 function assertEqual(actual, expected, label) { if (actual !== expected) throw new Error(`${label}: expected ${expected}, got ${actual}`); }

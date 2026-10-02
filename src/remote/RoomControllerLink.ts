@@ -13,7 +13,12 @@ export function relayUrl(): string {
   if (configured) return configured.replace(/\/$/, '');
   return import.meta.env.DEV ? `ws://${location.hostname}:8787` : '';
 }
-export function normalizeRoomCode(value: string): string { return value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, '').slice(0, 8); }
+export function normalizeRoomCode(value: string): string {
+  const upper = value.toUpperCase();
+  return /[A-Z]/.test(upper)
+    ? upper.replace(/[^A-HJ-NP-Z2-9]/g, '').slice(0, 8)
+    : upper.replace(/\D/g, '').slice(0, 8);
+}
 
 /** One host socket owns a room; each phone joins one independently approved seat. */
 export class RoomControllerLink {
@@ -51,6 +56,7 @@ export class RoomControllerLink {
     const url = new URL(relay);
     url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
     url.pathname = `${url.pathname.replace(/\/$/, '')}/rooms`;
+    url.searchParams.set('format', 'pin4');
     const response = await fetch(url, { method: 'POST' });
     if (!response.ok) throw new Error(`Room service returned HTTP ${response.status}`);
     const room: unknown = await response.json();
@@ -62,7 +68,7 @@ export class RoomControllerLink {
 
   async joinRoom(codeInput: string, seat: Team): Promise<void> {
     const code = normalizeRoomCode(codeInput);
-    if (code.length !== 8) throw new Error('Enter the 8-character room code');
+    if (!/^\d{4}$/.test(code) && !/^[A-HJ-NP-Z2-9]{8}$/.test(code)) throw new Error('Enter the 4-digit room code');
     this.disconnect();
     this.failureReason = '';
     this.callbacks.status('CONNECTING');

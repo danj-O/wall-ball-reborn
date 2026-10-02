@@ -21,7 +21,7 @@ app.innerHTML = `
   </div>
   <div id="connect-panel" class="connect-panel"><section class="connect-card">
     <h1>Wall Ball Phone Controller</h1><p>On the host, create one room. Enter its code here, choose Red or Blue, and wait for the host to accept your seat. The game stays on the host.</p>
-    <label for="room-input">8-character room code</label><input id="room-input" maxlength="8" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD2345" />
+    <label for="room-input">4-digit room code</label><input id="room-input" maxlength="8" inputmode="numeric" pattern="[0-9]*" autocomplete="off" spellcheck="false" placeholder="1234" />
     <label for="seat-select">Play as</label><select id="seat-select"><option value="red">Red</option><option value="blue">Blue</option></select>
     <div class="connect-actions"><button id="join-button" type="button">Join Room</button><button id="disconnect-button" type="button">Disconnect</button><button id="close-panel" type="button">Hide</button><button id="customize-from-connect" type="button" hidden>Customize Controls</button></div>
     <strong id="connection-state">NEW</strong><p id="phone-diagnostics"></p>

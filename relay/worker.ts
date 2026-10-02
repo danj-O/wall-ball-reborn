@@ -6,7 +6,9 @@ import type { Team } from '../src/game/arena.ts';
 interface Env { ROOMS: DurableObjectNamespace<Room>; }
 type Attachment = { role: 'host'; approved: false } | { role: 'phone'; seat: Team; approved: boolean };
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const roomCode = (): string => Array.from(crypto.getRandomValues(new Uint8Array(8)), n => CODE_CHARS[n % CODE_CHARS.length]).join('');
+const roomCode = (pin4: boolean): string => pin4
+  ? String(1000 + crypto.getRandomValues(new Uint32Array(1))[0] % 9000)
+  : Array.from(crypto.getRandomValues(new Uint8Array(8)), n => CODE_CHARS[n % CODE_CHARS.length]).join('');
 const reply = (socket: WebSocket, message: object): void => socket.send(JSON.stringify({ v: 1, ...message }));
 const isTeam = (value: unknown): value is Team => value === 'red' || value === 'blue';
 
@@ -14,8 +16,10 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === '/rooms' && request.method === 'POST') {
+      // Older deployed clients omit the format and continue to receive eight-character codes.
+      const pin4 = url.searchParams.get('format') === 'pin4';
       for (let tries = 0; tries < 5; tries++) {
-        const code = roomCode();
+        const code = roomCode(pin4);
         const token = crypto.randomUUID();
         const room = env.ROOMS.getByName(code);
         const response = await room.fetch(new Request('https://room/create', { method: 'POST', headers: { 'X-Host-Token': token } }));
@@ -28,7 +32,7 @@ export default {
     if (url.pathname === '/rooms' && request.method === 'OPTIONS') {
       return new Response(null, { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS' } });
     }
-    const match = /^\/rooms\/([A-HJ-NP-Z2-9]{8})\/ws$/.exec(url.pathname);
+    const match = /^\/rooms\/(\d{4}|[A-HJ-NP-Z2-9]{8})\/ws$/.exec(url.pathname);
     if (!match || request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('Not found', { status: 404 });
     return env.ROOMS.getByName(match[1]).fetch(request);
   },

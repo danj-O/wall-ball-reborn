@@ -87,7 +87,7 @@ app.innerHTML = `
         <p class="remote-steps"><strong>1.</strong> Open <a id="controller-url" target="_blank" rel="noopener"></a> on each phone.<br><strong>2.</strong> Create one room here. Each phone enters the same code and chooses Red or Blue.<br><strong>3.</strong> Accept each seat request here.</p>
         <button id="switch-to-controller" type="button">Use This Device as a Controller</button>
         <div class="editor-actions"><button id="create-room" type="button">Create Room</button><button id="remote-disconnect" type="button">Close Room</button></div>
-        <div id="room-code" class="room-code" aria-live="polite">— — — — — — — —</div>
+        <div id="room-code" class="room-code" aria-live="polite">— — — —</div>
         <div class="remote-seat" data-seat="red"><strong>RED SEAT</strong><span id="remote-status-red" role="status">EMPTY</span><div id="remote-approval-red" class="editor-actions" hidden><button id="approve-phone-red" type="button">Accept Red Phone</button><button id="reject-phone-red" type="button">Decline</button></div><button id="disconnect-phone-red" type="button" hidden>Disconnect Red Phone</button><pre id="remote-diagnostics-red"></pre></div>
         <div class="remote-seat" data-seat="blue"><strong>BLUE SEAT</strong><span id="remote-status-blue" role="status">EMPTY</span><div id="remote-approval-blue" class="editor-actions" hidden><button id="approve-phone-blue" type="button">Accept Blue Phone</button><button id="reject-phone-blue" type="button">Decline</button></div><button id="disconnect-phone-blue" type="button" hidden>Disconnect Blue Phone</button><pre id="remote-diagnostics-blue"></pre></div>
         <p id="remote-status" role="status">NEW</p>
@@ -1012,7 +1012,7 @@ createRoomButton.addEventListener('click', async () => {
 });
 document.querySelector<HTMLButtonElement>('#remote-disconnect')!.addEventListener('click', () => {
   remoteLink.disconnect();
-  document.querySelector<HTMLElement>('#room-code')!.textContent = '— — — — — — — —';
+  document.querySelector<HTMLElement>('#room-code')!.textContent = '— — — —';
 });
 window.setInterval(async () => {
   const now = performance.now();

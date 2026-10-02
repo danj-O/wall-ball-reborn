@@ -6,7 +6,7 @@ The host device alone runs Wall Ball simulation. One Red phone and one Blue phon
 
 1. Run `npm ci`, `npm run relay:dev`, and `npm run dev` in separate terminals. Use `npm run relay:smoke` to check room creation, both seat approvals, isolated inputs, targeted feedback, and independent disconnects.
 2. Open the game on the host at the Vite URL. On each phone, open the same Vite site with `?controller=1` (use the computer's LAN address, not `localhost` on the phone).
-3. On the host, open **Menu → Remote Controller** and tap **Create Room** once. Both phones enter the same 8-character code, choose different Red/Blue seats, and tap **Join Room**.
+3. On the host, open **Menu → Remote Controller** and tap **Create Room** once. Both phones enter the same 4-digit code, choose different Red/Blue seats, and tap **Join Room**. Older eight-character rooms remain joinable during the transition.
 4. Accept each seat request on the host. The host and phone diagnostics should change from **Path RELAY** to **Path DIRECT** when WebRTC opens. A rejected request or occupied seat cannot send controls. If a phone leaves, that seat returns to local host controls while the other phone keeps playing.
 5. A stalled phone stream releases movement and held aims after 650 ms without closing the room. Fresh input resumes play. The host can disconnect either seat independently if a phone is stuck or gone; that seat returns to local controls and a replacement phone can request it. Closing the room disconnects both phones.
 

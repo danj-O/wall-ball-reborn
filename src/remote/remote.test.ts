@@ -28,8 +28,11 @@ test('protocol rejects malformed or unsupported input and clamps bounded control
 });
 
 test('room code normalizes mobile entry without changing control input', () => {
+  assert.equal(normalizeRoomCode('12 34'), '1234');
+  assert.equal(normalizeRoomCode('0000'), '0000');
   assert.equal(normalizeRoomCode('ab cd-2345'), 'ABCD2345');
   assert.equal(normalizeRoomCode('O0I1ABCD2345'), 'ABCD2345');
+  assert.equal(normalizeRoomCode('23456789'), '23456789');
 });
 
 function harness() {
