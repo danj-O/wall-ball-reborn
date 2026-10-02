@@ -39,6 +39,8 @@ coverage/
 
 # Environment variable files
 .env
+.env.local
+.dev.vars*
 .jev-metrics.jsonl
 
 # Production builds

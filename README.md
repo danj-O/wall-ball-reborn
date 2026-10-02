@@ -2,6 +2,8 @@
 
 Phase 5 match flow, controls, defaults, and verification: [PHASE_5_RESULTS.md](PHASE_5_RESULTS.md).
 
+The experimental two-phone, one-room controller and setup instructions are in [REMOTE_CONTROLLER_EXPERIMENT.md](REMOTE_CONTROLLER_EXPERIMENT.md). It uses WebRTC for direct controls where possible and a Cloudflare room for pairing and fallback. It is not part of the current GitHub Pages deployment until this branch is deployed.
+
 A local, shared-camera, two-player Capture the Flag prototype built with TypeScript and Three.js. The older Unity `Wall-Ball` project was used as a behavioral reference for movement, flag pickup, and returning the objective to base. This project has its own architecture.
 
 ## Run
@@ -79,4 +81,4 @@ On the Vite development server, **Create New Built-In Map** validates the edited
 - [`main.ts`](src/main.ts) handles keyboard and pointer input, the editor UI, local storage, and the fixed-step loop.
 - [`TouchControls`](src/input/TouchControls.ts) builds action pads from deployable definitions and tracks each pointer by ID. [`controlLayout.ts`](src/input/controlLayout.ts) defines independent positions, sizes, and drag radii for the permanent pads and two optional ability slots per player. At most two temporary abilities are visible per player to keep the shared mobile screen usable; only Mega Bomb currently occupies one slot. Touch and keyboard call the same deployment methods in `Game`.
 
-The fixed angled perspective camera views the entire 3D tabletop while simulation and editor positions remain on the XZ plane. The simulation runs at 60 steps per second. `POWER_UP_CONFIG` starts spawning after a random 10–15 seconds, then every 15–25 seconds, with at most two pickups, 30-second pickup lifetimes, 40 location attempts, and 3-unit clearance from players. Normal Bombs retain a 2.5-unit blast radius and 50 wall damage. Add `?debug=1` to the current page URL for active pickups, spawn timing and rejection reasons, effects, charges, economy, and wall HP. This phase contains no player damage, shops, networking, or AI.
+The fixed angled perspective camera views the entire 3D tabletop while simulation and editor positions remain on the XZ plane. The simulation runs at 60 steps per second. `POWER_UP_CONFIG` starts spawning after a random 10–15 seconds, then every 15–25 seconds, with at most two pickups, 30-second pickup lifetimes, 40 location attempts, and 3-unit clearance from players. Add `?debug=1` to the current page URL for active pickups, spawn timing and rejection reasons, effects, charges, economy, and wall HP. The phone-controller branch adds input transport only; it does not add networked simulation, player damage, shops, or AI.

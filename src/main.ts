@@ -13,6 +13,10 @@ import { DEFAULT_GAME_SETTINGS, loadGameSettings } from './game/gameSettings.ts'
 import { GAME_SETTING_RANGES, type GameSettings, type ProjectileTuning } from './game/gameSettingsSchema.ts';
 import { alignSelection, deleteSelection, distributeSelection, duplicateSelection, EditorHistory, entityCenter, mirrorSelection, objectsInBox, rotateSelection, selectObject, snapshot, translateSelection, type EditResult } from './editor/arenaEditor.ts';
 import { ACTIVE_MAP_KEY, loadLocalMaps, MAP_SCHEMA_VERSION, saveLocalMaps, uniqueMapId, validateMapDocument, workingCopy, type MapChoice, type MapDocument } from './maps/mapLibrary.ts';
+import { RemoteInput } from './remote/RemoteInput.ts';
+import { RoomControllerLink, relayUrl } from './remote/RoomControllerLink.ts';
+import { controllerStatus } from './remote/protocol.ts';
+import { localControlAllowed, selectedMovement } from './remote/inputOwnership.ts';
 
 const CONTROL_STORAGE_KEY = 'wall-ball-reborn-controls-v1';
 const GAME_SETTINGS_STORAGE_KEY = 'wall-ball-reborn-game-settings-v1';
@@ -54,6 +58,9 @@ let placementTool: PlacementTool | null = null;
 let editorMessage = '';
 const held = new Set<string>();
 const touchMove: Record<Team, Vec2> = { red: { x: 0, z: 0 }, blue: { x: 0, z: 0 } };
+const remoteMove: Record<Team, Vec2> = { red: { x: 0, z: 0 }, blue: { x: 0, z: 0 } };
+let remoteInputs: Record<Team, RemoteInput>;
+let remoteLink: RoomControllerLink;
 const keyboardThrowStrength: Record<Team, number> = { red: 0.62, blue: 0.62 };
 let touchVisible = matchMedia('(pointer: coarse)').matches;
 let menuOpen = false;
@@ -73,7 +80,17 @@ app.innerHTML = `
     </section>
     <aside id="sidebar" class="sidebar" hidden>
       <div class="menu-heading"><span class="brand-mark">WB</span><div><strong>WALL BALL</strong><small id="mode-label">MATCH / CAPTURE THE FLAG</small></div></div>
-      <div class="menu-actions"><button id="new-match-button" type="button">Start / New Match</button><button id="touch-toggle" type="button">Touch Controls</button><button id="edit-button" type="button">Customize Arena</button><button id="controls-button" type="button">Customize Controls</button><button id="game-settings-button" type="button" aria-expanded="false">Game Tuning</button><button id="appearance-button" type="button">Appearance</button><button id="reset-button" type="button">Return to Start</button><button id="fullscreen-button" type="button" aria-pressed="false">Enter Fullscreen</button></div>
+      <div class="menu-actions"><button id="new-match-button" type="button">Start / New Match</button><button id="touch-toggle" type="button">Touch Controls</button><button id="edit-button" type="button">Customize Arena</button><button id="controls-button" type="button">Customize Controls</button><button id="game-settings-button" type="button" aria-expanded="false">Game Tuning</button><button id="remote-button" type="button" aria-expanded="false">Remote Controller · Experimental</button><button id="appearance-button" type="button">Appearance</button><button id="reset-button" type="button">Return to Start</button><button id="fullscreen-button" type="button" aria-pressed="false">Enter Fullscreen</button></div>
+      <div id="remote-panel" class="game-settings-panel remote-panel" hidden>
+        <div class="section-kicker">REMOTE CONTROLLERS · EXPERIMENT</div>
+        <p class="hint">This device runs the match. Red and Blue phones join separate seats in the same room; unused seats stay playable here.</p>
+        <p class="remote-steps"><strong>1.</strong> Open <a id="controller-url" target="_blank" rel="noopener"></a> on each phone.<br><strong>2.</strong> Create one room here. Each phone enters the same code and chooses Red or Blue.<br><strong>3.</strong> Accept each seat request here.</p>
+        <div class="editor-actions"><button id="create-room" type="button">Create Room</button><button id="remote-disconnect" type="button">Close Room</button></div>
+        <div id="room-code" class="room-code" aria-live="polite">— — — — — — — —</div>
+        <div class="remote-seat" data-seat="red"><strong>RED SEAT</strong><span id="remote-status-red" role="status">EMPTY</span><div id="remote-approval-red" class="editor-actions" hidden><button id="approve-phone-red" type="button">Accept Red Phone</button><button id="reject-phone-red" type="button">Decline</button></div><pre id="remote-diagnostics-red"></pre></div>
+        <div class="remote-seat" data-seat="blue"><strong>BLUE SEAT</strong><span id="remote-status-blue" role="status">EMPTY</span><div id="remote-approval-blue" class="editor-actions" hidden><button id="approve-phone-blue" type="button">Accept Blue Phone</button><button id="reject-phone-blue" type="button">Decline</button></div><pre id="remote-diagnostics-blue"></pre></div>
+        <p id="remote-status" role="status">NEW</p>
+      </div>
       <div id="game-settings-panel" class="game-settings-panel" hidden>
         <div class="section-kicker">GAME TUNING</div><p class="hint">Speed is units/sec; acceleration and braking are units/sec². Player weight changes blast response. Air steering/braking scale movement while aloft. Each bomb has its own fuse timer, starting on impact, plus separate blast push and lift. Blast radius is in arena units. Starting supplies apply next match; generation rates and movement apply now. A regeneration value of 0 turns it off.</p>
         <div id="game-settings-sliders"></div>
@@ -889,6 +906,118 @@ function reportDeployment(team: Team, id: DeployableId, result: ReturnType<Game[
   updateUi();
 }
 
+function remoteOwned(team: Team): boolean { return remoteInputs[team].owns(team); }
+function refreshRemoteOwnership(): void {
+  for (const team of ['red', 'blue'] as const) touchControls.classList.toggle(`remote-owned-${team}`, remoteOwned(team));
+}
+const remoteCallbacks = {
+  toWorld: (x: number, y: number) => view.screenDirectionToGround(x, y),
+  move: (team: Team, value: Vec2) => { remoteMove[team] = value; },
+  start: (team: Team, id: DeployableId) => { if (!editing && !editingControls && game.match.phase === 'playing') game.beginDeployAim(team, id); },
+  aim: (team: Team, id: DeployableId, direction: Vec2, strength: number) => { if (!editing && !editingControls && game.match.phase === 'playing') game.updateDeployAim(team, id, direction, strength); },
+  release: (team: Team, id: DeployableId) => {
+    if (editing || editingControls || game.match.phase !== 'playing') return;
+    const result = game.releaseDeployAim(team, id);
+    reportDeployment(team, id, result);
+    if (result === 'placed') remoteLink.sendEvent({ v: 1, type: 'feedback', kind: id }, team);
+  },
+  cancel: (team: Team, id: DeployableId) => game.cancelDeployAim(team, id),
+};
+remoteInputs = { red: new RemoteInput(remoteCallbacks), blue: new RemoteInput(remoteCallbacks) };
+const remoteStatus: Record<Team, HTMLElement> = {
+  red: document.querySelector<HTMLElement>('#remote-status-red')!,
+  blue: document.querySelector<HTMLElement>('#remote-status-blue')!,
+};
+const remoteApproval: Record<Team, HTMLElement> = {
+  red: document.querySelector<HTMLElement>('#remote-approval-red')!,
+  blue: document.querySelector<HTMLElement>('#remote-approval-blue')!,
+};
+const roomStatus = document.querySelector<HTMLElement>('#remote-status')!;
+const createRoomButton = document.querySelector<HTMLButtonElement>('#create-room')!;
+if (!relayUrl()) { roomStatus.textContent = 'Remote relay unavailable in this build'; createRoomButton.disabled = true; }
+remoteLink = new RoomControllerLink('host', {
+  status: value => { roomStatus.textContent = value === 'FAILED' ? `FAILED · ${remoteLink.failureReason}` : value; },
+  connected: team => {
+    touchController.cancelAll();
+    held.clear(); keyboardOwned.clear();
+    game.cancelDeployAim(team);
+    touchMove[team] = { x: 0, z: 0 };
+    remoteInputs[team].connect(team, performance.now());
+    refreshRemoteOwnership();
+    remoteStatus[team].textContent = 'PHONE CONNECTED';
+  },
+  disconnected: team => {
+    const wasOwned = remoteOwned(team);
+    remoteInputs[team].disconnect();
+    refreshRemoteOwnership();
+    remoteStatus[team].textContent = 'EMPTY · local controls available';
+    if (wasOwned) {
+      gameToast.textContent = `${team.toUpperCase()} CONTROLLER DISCONNECTED · local controls restored`;
+      toastUntil = performance.now() + 3000;
+    }
+  },
+});
+remoteLink.onInput = (team, message) => {
+  remoteInputs[team].receive(message, performance.now());
+  if (remoteStatus[team].textContent?.startsWith('CONTROLLER PAUSED')) remoteStatus[team].textContent = 'PHONE CONNECTED';
+};
+remoteLink.onJoinRequest = (team, pending) => {
+  remoteApproval[team].hidden = !pending;
+  if (pending) remoteStatus[team].textContent = 'PHONE REQUESTS THIS SEAT';
+  else if (!remoteLink.isSeatConnected(team)) remoteStatus[team].textContent = 'EMPTY';
+};
+for (const team of ['red', 'blue'] as const) {
+  document.querySelector<HTMLButtonElement>(`#approve-phone-${team}`)!.addEventListener('click', () => {
+    remoteApproval[team].hidden = true;
+    remoteLink.approveJoin(team);
+  });
+  document.querySelector<HTMLButtonElement>(`#reject-phone-${team}`)!.addEventListener('click', () => {
+    remoteApproval[team].hidden = true;
+    remoteLink.rejectJoin(team);
+    remoteStatus[team].textContent = 'REQUEST DECLINED';
+  });
+}
+const remotePanel = document.querySelector<HTMLElement>('#remote-panel')!;
+const remoteButton = document.querySelector<HTMLButtonElement>('#remote-button')!;
+const controllerLink = document.querySelector<HTMLAnchorElement>('#controller-url')!;
+controllerLink.href = new URL('./?controller=1', location.href).href;
+controllerLink.textContent = controllerLink.href;
+remoteButton.addEventListener('click', () => {
+  remotePanel.hidden = !remotePanel.hidden;
+  remoteButton.setAttribute('aria-expanded', String(!remotePanel.hidden));
+});
+createRoomButton.addEventListener('click', async () => {
+  remoteLink.disconnect();
+  roomStatus.textContent = 'CREATING ROOM';
+  try {
+    const code = await remoteLink.createRoom();
+    document.querySelector<HTMLElement>('#room-code')!.textContent = code;
+    roomStatus.textContent = 'Enter this code on both phones';
+  } catch (error) { roomStatus.textContent = error instanceof Error ? `FAILED: ${error.message}` : 'FAILED'; }
+});
+document.querySelector<HTMLButtonElement>('#remote-disconnect')!.addEventListener('click', () => {
+  remoteLink.disconnect();
+  document.querySelector<HTMLElement>('#room-code')!.textContent = '— — — — — — — —';
+});
+window.setInterval(async () => {
+  const now = performance.now();
+  for (const team of ['red', 'blue'] as const) {
+    const remoteInput = remoteInputs[team];
+    if (remoteLink.isSeatConnected(team)) {
+      remoteLink.ping(now, team);
+      const player = game.powerUps.players[team];
+      remoteLink.sendEvent(controllerStatus(team, game.match.phase,
+        game.deployments.inventory[team].wall, game.deployments.inventory[team].bomb,
+        player.charges['mega-bomb'], !!game.state.players[team].carrying,
+        player.shieldRemaining > 0, player.speedRemaining > 0), team);
+    }
+    const diagnostics = await remoteLink.diagnostics(team);
+    document.querySelector<HTMLElement>(`#remote-diagnostics-${team}`)!.textContent =
+      `Path ${diagnostics.transport} · room ${diagnostics.connection} · RTT ${diagnostics.rttMs?.toFixed(0) ?? '?'} ms · last input ${remoteInput.age(now).toFixed(0)} ms
+received ${remoteInput.received} · stale ${remoteInput.dropped} · sent ${diagnostics.sent} · buffered ${diagnostics.buffered} B`;
+  }
+}, 500);
+
 function loadControlLayout(): ControlLayout | undefined {
   try {
     const saved = localStorage.getItem(CONTROL_STORAGE_KEY);
@@ -897,10 +1026,10 @@ function loadControlLayout(): ControlLayout | undefined {
 }
 touchController = new TouchControls(touchControls, {
   toWorld: (dx, dy) => view.screenDirectionToGround(dx, dy),
-  onMove: (team, input) => { if (!editing && !editingControls && game.match.phase === 'playing') touchMove[team] = input; },
-  onAimStart: (team, id) => { if (!editing && !editingControls && game.match.phase === 'playing') game.beginDeployAim(team, id); },
-  onAim: (team, id, direction, strength) => { if (!editing && !editingControls && game.match.phase === 'playing') game.updateDeployAim(team, id, direction, strength); },
-  onAimRelease: (team, id) => { if (!editing && !editingControls && game.match.phase === 'playing') reportDeployment(team, id, game.releaseDeployAim(team, id)); },
+  onMove: (team, input) => { if (!remoteOwned(team) && !editing && !editingControls && game.match.phase === 'playing') touchMove[team] = input; },
+  onAimStart: (team, id) => { if (!remoteOwned(team) && !editing && !editingControls && game.match.phase === 'playing') game.beginDeployAim(team, id); },
+  onAim: (team, id, direction, strength) => { if (!remoteOwned(team) && !editing && !editingControls && game.match.phase === 'playing') game.updateDeployAim(team, id, direction, strength); },
+  onAimRelease: (team, id) => { if (!remoteOwned(team) && !editing && !editingControls && game.match.phase === 'playing') reportDeployment(team, id, game.releaseDeployAim(team, id)); },
   onAimCancel: (team, id) => game.cancelDeployAim(team, id),
 }, loadControlLayout(), persistControlLayout, id => { selectedControl = id; syncControlSettings(); });
 const actionSlots: ActionSlot[] = (['wall', 'bomb'] as const).map(id => DEPLOYABLES[id]).map(definition => ({
@@ -1302,6 +1431,7 @@ const controlKeys = new Set([
   ...Object.keys(actionKeys),
 ]);
 function keyboardAim(team: Team, id: DeployableId): void {
+  if (!!remoteOwned(team)) return;
   const down = (key: string) => Number(held.has(key));
   const raw = team === 'red'
     ? { x: down('KeyH') - down('KeyF'), z: down('KeyG') - down('KeyT') }
@@ -1373,6 +1503,7 @@ window.addEventListener('keydown', event => {
   }
   const action = actionKeys[event.code];
   if (action) {
+    if (!!remoteOwned(action[0])) { held.delete(event.code); return; }
     if (game.deployments.aim[action[0]][action[1]]) return;
     game.beginDeployAim(action[0], action[1]);
     keyboardOwned.add(event.code);
@@ -1391,7 +1522,7 @@ window.addEventListener('keyup', event => {
     return;
   }
   const action = actionKeys[event.code];
-  if (!editing && action && keyboardOwned.has(event.code)) {
+  if (!editing && action && !remoteOwned(action[0]) && keyboardOwned.has(event.code)) {
     keyboardAim(action[0], action[1]);
     reportDeployment(action[0], action[1], game.releaseDeployAim(action[0], action[1]));
   }
@@ -1426,8 +1557,10 @@ document.addEventListener('visibilitychange', () => {
 function input(): MoveInput {
   const down = (key: string) => Number(held.has(key));
   return {
-    red: { x: down('KeyD') - down('KeyA') + touchMove.red.x, z: down('KeyS') - down('KeyW') + touchMove.red.z },
-    blue: { x: down('ArrowRight') - down('ArrowLeft') + touchMove.blue.x, z: down('ArrowDown') - down('ArrowUp') + touchMove.blue.z },
+    red: selectedMovement('red', remoteInputs.red.owner,
+      { x: down('KeyD') - down('KeyA'), z: down('KeyS') - down('KeyW') }, touchMove.red, remoteMove.red),
+    blue: selectedMovement('blue', remoteInputs.blue.owner,
+      { x: down('ArrowRight') - down('ArrowLeft'), z: down('ArrowDown') - down('ArrowUp') }, touchMove.blue, remoteMove.blue),
   };
 }
 
@@ -1439,6 +1572,11 @@ let lastTheftSequence = 0;
 let toastUntil = 0;
 let lastDebug = 0;
 function frame(now: number): void {
+  for (const team of ['red', 'blue'] as const) if (remoteInputs[team].expire(now)) {
+    remoteStatus[team].textContent = 'CONTROLLER PAUSED · waiting for input';
+    gameToast.textContent = `${team.toUpperCase()} CONTROLLER PAUSED · held controls released`;
+    toastUntil = now + 3000;
+  }
   if (game.match.phase === 'playing' && !editing && !editingControls && !appearanceOpen) accumulator += Math.min((now - previous) / 1000, 0.1);
   else accumulator = 0;
   previous = now;

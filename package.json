@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types --test src/game/*.test.ts src/editor/*.test.ts src/maps/*.test.ts src/input/*.test.ts src/view/*.test.ts tools/jev/*.test.ts tools/controlDefaultPreset.test.ts",
+    "relay:dev": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler dev --config relay/wrangler.jsonc --local --ip 0.0.0.0",
+    "relay:smoke": "node relay/smoke.mjs",
+    "relay:deploy": "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false wrangler deploy --config relay/wrangler.jsonc",
+    "check:relay": "tsc -p tsconfig.worker.json --noEmit",
+    "test": "node --experimental-strip-types --test src/game/*.test.ts src/editor/*.test.ts src/maps/*.test.ts src/input/*.test.ts src/remote/*.test.ts src/view/*.test.ts tools/jev/*.test.ts tools/controlDefaultPreset.test.ts",
     "check:jev": "tsc -p tsconfig.jev.json --noEmit",
     "jev:review": "node --experimental-strip-types tools/jev/cli.ts"
   },
@@ -15,9 +19,11 @@
     "three": "^0.180.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261001.1",
     "@types/node": "^22.18.6",
     "@types/three": "^0.180.0",
     "typescript": "^5.9.3",
-    "vite": "^7.1.7"
+    "vite": "^7.1.7",
+    "wrangler": "^4.145.0"
   }
 }
