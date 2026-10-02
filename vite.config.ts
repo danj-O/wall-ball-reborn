@@ -6,12 +6,14 @@ import { validateGameSettings } from './src/game/gameSettingsSchema.ts';
 import { validateArenaDefinition } from './src/game/arena.ts';
 import { validateMapDocument } from './src/maps/mapLibrary.ts';
 import { validateAppearance } from './src/view/appearance.ts';
+import { validatePhoneLayout } from './src/remote/phoneLayout.ts';
 
 const presetPath = fileURLToPath(new URL('./src/input/mobileControlDefaults.json', import.meta.url));
 const gamePresetPath = fileURLToPath(new URL('./src/game/gameSettingsDefaults.json', import.meta.url));
 const arenaPresetPath = fileURLToPath(new URL('./src/maps/classic.json', import.meta.url));
 const mapsDirectory = fileURLToPath(new URL('./src/maps/', import.meta.url));
 const appearancePresetPath = fileURLToPath(new URL('./src/view/appearanceDefaults.json', import.meta.url));
+const phonePresetPath = fileURLToPath(new URL('./src/remote/phoneControlDefaults.json', import.meta.url));
 
 function controlDefaultWriter(): Plugin {
   return {
@@ -45,6 +47,32 @@ function controlDefaultWriter(): Plugin {
         } catch {
           reply(500, 'Could not save the code default');
         }
+      });
+      server.middlewares.use('/__dev/phone-control-defaults', async (request, response) => {
+        const reply = (status: number, message: string) => {
+          response.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+          response.end(JSON.stringify({ message }));
+        };
+        if (request.method !== 'POST') { reply(405, 'POST required'); return; }
+        try {
+          if (!request.headers.origin || new URL(request.headers.origin).host !== request.headers.host) {
+            reply(403, 'Same-origin request required'); return;
+          }
+        } catch { reply(403, 'Same-origin request required'); return; }
+        if (!request.headers['content-type']?.startsWith('application/json')) { reply(415, 'JSON required'); return; }
+        try {
+          let body = '';
+          for await (const chunk of request) {
+            body += chunk.toString();
+            if (body.length > 4096) { reply(413, 'Phone layout too large'); return; }
+          }
+          let parsed: unknown;
+          try { parsed = JSON.parse(body); } catch { reply(400, 'Invalid JSON'); return; }
+          const preset = validatePhoneLayout(parsed);
+          if (!preset) { reply(400, 'Invalid phone control layout'); return; }
+          await writeFile(phonePresetPath, `${JSON.stringify(preset, null, 2)}\n`, 'utf8');
+          reply(200, 'Saved as the phone control default');
+        } catch { reply(500, 'Could not save phone control default'); }
       });
       server.middlewares.use('/__dev/game-defaults', async (request, response) => {
         const reply = (status: number, message: string) => {

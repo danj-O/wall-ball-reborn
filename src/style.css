@@ -37,6 +37,17 @@ button.selected, button[aria-pressed="true"] { border-color: #e3b876; background
 .game-settings-panel[hidden], .developer-confirm[hidden], .map-name-dialog[hidden] { display: none; }
 .game-settings-panel .hint { margin: 7px 0 13px; font-size: 11px; }
 .game-settings-panel .control-setting { margin: 8px 0; }
+.remote-panel label { display: block; margin: 9px 0 5px; font-size: 11px; font-weight: 800; }
+.remote-panel select, .remote-panel textarea { width: 100%; padding: 8px; border: 1px solid #94ad9b; border-radius: 6px; background: #10231d; color: #f5f5ec; font: 12px ui-monospace, monospace; touch-action: manipulation; user-select: text; -webkit-user-select: text; }
+.remote-panel textarea { min-height: 65px; resize: vertical; touch-action: pan-y; }
+.remote-panel > button { width: 100%; }
+.remote-steps { margin: 8px 0 13px; color: #e7eee0; font-size: 12px; line-height: 1.65; }
+.remote-steps strong { color: #f3ca80; }
+.remote-steps a { color: #a9ddff; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+#remote-status { color: #f6d69b; font-size: 12px; font-weight: 800; overflow-wrap: anywhere; }
+#remote-diagnostics { margin: 8px 0 0; color: #b9d3c0; font: 11px/1.5 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.touch-controls.remote-owned-red .touch-pad[data-team="red"], .touch-controls.remote-owned-red .move-zone[data-team="red"],
+.touch-controls.remote-owned-blue .touch-pad[data-team="blue"], .touch-controls.remote-owned-blue .move-zone[data-team="blue"] { display: none; }
 .game-settings-panel .tuning-group-start { border-top: 1px solid #516a7b; padding-top: 11px; }
 .developer-confirm { position: absolute; z-index: 60; inset: 0; display: grid; place-items: center; padding: 20px; background: #06111be8; touch-action: none; }
 .developer-confirm-card { width: min(420px, 100%); padding: 20px; border: 2px solid #ebbc73; border-radius: 12px; background: var(--ui-neutral); box-shadow: 0 16px 50px #000c; }
@@ -196,3 +207,5 @@ h1 span { color: #ed6059; }
   .instruction-grid span { font-size: 10px; line-height: 1.2; }
   .match-primary { min-height: 38px; margin-top: 8px; }
 }
+.room-code { margin: 12px 0; padding: 9px; border: 2px solid #f3ca80; border-radius: 9px; color: #fff4c8; background: #10231d; font: 900 clamp(20px, 4vw, 34px) ui-monospace, monospace; text-align: center; letter-spacing: .12em; user-select: text; -webkit-user-select: text; }
+#remote-approval:not([hidden]) { display: flex; align-items: center; flex-wrap: wrap; padding: 9px; border: 2px solid #f3ca80; border-radius: 8px; }

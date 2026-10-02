@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["@cloudflare/workers-types"], "noEmit": true },
+  "include": ["relay/**/*.ts", "src/remote/protocol.ts", "src/remote/signaling.ts", "src/game/arena.ts"]
+}

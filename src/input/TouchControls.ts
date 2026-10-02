@@ -82,6 +82,7 @@ export class TouchControls {
   private readonly onSelectionChange: (id: ControlId) => void;
   private readonly pointers = new PointerRegistry<Session>();
   private readonly occupiedPads = new Set<HTMLElement>();
+  private readonly pendingActionSlots = new Map<Team, ActionSlot[]>();
   private layout: ControlLayout;
   private usingDefaultLayout: boolean;
   private customizing = false;
@@ -153,6 +154,11 @@ export class TouchControls {
   }
 
   setActionSlots(team: Team, slots: readonly ActionSlot[]): void {
+    if ([...this.pointers.values()].some(session => session.team === team && session.kind === 'action')) {
+      this.pendingActionSlots.set(team, [...slots]);
+      return;
+    }
+    this.pendingActionSlots.delete(team);
     const visible = slots.slice(0, 4); // Two permanent actions plus up to two acquired abilities.
     const wanted = new Set(visible.map(slot => slot.id));
     const existing = [...this.root.querySelectorAll<HTMLElement>(`.action-pad[data-team="${team}"]`)];
@@ -250,7 +256,7 @@ export class TouchControls {
       if (!position) continue;
       pad.style.setProperty('--control-size', `${size}px`);
       pad.style.setProperty('--float-diameter', `${this.layout.floatRadii[id] * 2}px`);
-      if (pad.classList.contains('active') && pad.dataset.kind === 'move') continue;
+      if (pad.classList.contains('active')) continue;
       pad.style.left = `${position.x * 100}%`;
       pad.style.top = `${position.y * 100}%`;
     }
@@ -400,5 +406,9 @@ export class TouchControls {
     if (session.kind === 'move') this.callbacks.onMove(session.team, { x: 0, z: 0 });
     else if (cancelled) this.callbacks.onAimCancel(session.team, session.itemId!);
     else this.callbacks.onAimRelease(session.team, session.itemId!);
+    if (session.kind === 'action' && ![...this.pointers.values()].some(active => active.team === session.team && active.kind === 'action')) {
+      const pending = this.pendingActionSlots.get(session.team);
+      if (pending) this.setActionSlots(session.team, pending);
+    }
   }
 }
