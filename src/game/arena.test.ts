@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cloneArena, BASE_ARENA as DEFAULT_ARENA, DEFAULT_ARENA as SAVED_DEFAULT_ARENA, flagFitsArena, minimumArenaDimensions, nextArenaObjectId, resizedArena, validateArenaDefinition, WALL_TYPES, wallFitsArena } from './arena.ts';
+import { cloneArena, BASE_ARENA as DEFAULT_ARENA, DEFAULT_ARENA as SAVED_DEFAULT_ARENA, DEFAULT_BASE_RADIUS, flagFitsArena, minimumArenaDimensions, nextArenaObjectId, resizedArena, validateArenaDefinition, WALL_TYPES, wallFitsArena } from './arena.ts';
+import { CaptureTheFlag } from './CaptureTheFlag.ts';
 
 test('larger default arena has a smaller center and two rows of standard wall pieces per side', () => {
   const arena = DEFAULT_ARENA;
@@ -36,6 +37,47 @@ test('flag bases can move within bounds while avoiding walls and the other flag'
   assert.equal(flagFitsArena('red', { x: 0, z: 0 }, arena), false);
   assert.equal(flagFitsArena('red', { x: 22, z: 0 }, arena), false);
   assert.equal(flagFitsArena('red', { x: arena.bounds.minX + 0.5, z: 0 }, arena), false);
+});
+
+test('base size persists, changes the scoring area, and cannot overlap the arena edge', () => {
+  const arena = cloneArena(SAVED_DEFAULT_ARENA);
+  assert.equal(arena.baseRadius, DEFAULT_BASE_RADIUS);
+  const old = structuredClone(arena) as Partial<typeof arena>;
+  delete old.baseRadius;
+  assert.equal(validateArenaDefinition(old)?.baseRadius, DEFAULT_BASE_RADIUS, 'older maps gain the default size');
+  arena.baseRadius = 1.6;
+  assert.equal(validateArenaDefinition(arena)?.baseRadius, 1.6);
+  const mode = new CaptureTheFlag();
+  const state = mode.createState(arena);
+  state.players.red.carrying = 'blue';
+  state.flags.blue.carrier = 'red';
+  state.players.red.position = { x: arena.flagPositions.red.x + 1.45, z: 0 };
+  mode.update(state, arena);
+  assert.equal(state.winner, 'red');
+  arena.baseRadius = 1.1;
+  const smaller = mode.createState(arena);
+  smaller.players.red.carrying = 'blue';
+  smaller.flags.blue.carrier = 'red';
+  smaller.players.red.position = { x: arena.flagPositions.red.x + 1.45, z: 0 };
+  mode.update(smaller, arena);
+  assert.equal(smaller.winner, null);
+  arena.baseRadius = 2.5;
+  assert.equal(validateArenaDefinition(arena), null, 'a large base cannot extend beyond the edge');
+});
+
+test('flag pickup and carrier tag emit distinct presentation notices', () => {
+  const arena = cloneArena(SAVED_DEFAULT_ARENA);
+  const mode = new CaptureTheFlag();
+  const state = mode.createState(arena);
+  state.players.red.position = { ...arena.flagPositions.blue };
+  mode.update(state, arena);
+  assert.equal(state.notice?.kind, 'flag-pickup');
+  assert.equal(state.notice?.team, 'red');
+  state.players.blue.position = { ...state.players.red.position };
+  mode.update(state, arena);
+  assert.equal(state.notice?.kind, 'flag-return');
+  assert.equal(state.notice?.team, 'blue');
+  assert.equal(state.players.red.carrying, null);
 });
 
 test('reset preset restores segmented walls, depots, and standard objectives without sharing data', () => {

@@ -1,7 +1,8 @@
 import './style.css';
-import { ARENA_DIMENSIONS, cloneArena, DEFAULT_ARENA, DEFAULT_DEPOT_CAPACITY, depotFitsArena, flagFitsArena, MAX_DEPOT_CAPACITY, minimumArenaDimensions, nextArenaObjectId, powerUpRegionFitsArena, resizedArena, WALL_TYPES, wallFitsArena, type ArenaDefinition, type DepotDefinition, type DepotType, type RectRegion, type WallDefinition, type WallType } from './game/arena.ts';
+import { ARENA_DIMENSIONS, BASE_RADIUS_RANGE, cloneArena, DEFAULT_ARENA, DEFAULT_DEPOT_CAPACITY, depotFitsArena, flagFitsArena, MAX_DEPOT_CAPACITY, minimumArenaDimensions, nextArenaObjectId, powerUpRegionFitsArena, resizedArena, validateArenaDefinition, WALL_TYPES, wallFitsArena, type ArenaDefinition, type DepotDefinition, type DepotType, type RectRegion, type WallDefinition, type WallType } from './game/arena.ts';
 import { CaptureTheFlag } from './game/CaptureTheFlag.ts';
 import { Game, type MoveInput } from './game/Game.ts';
+import type { GameNotice } from './game/GameMode.ts';
 import type { Team, Vec2 } from './game/arena.ts';
 import { AIM_DEAD_ZONE, DEPLOYABLES, type DeployableId } from './game/deployables.ts';
 import { TouchControls, type ActionSlot } from './input/TouchControls.ts';
@@ -75,6 +76,7 @@ app.innerHTML = `
       <div id="viewport" class="viewport"></div><div id="box-rectangle" class="box-rectangle" hidden></div>
       <div id="touch-controls" class="touch-controls" hidden></div>
       <div id="game-toast" class="game-toast" hidden></div>
+      <div id="match-announcement" class="match-announcement" role="status" aria-live="polite" hidden><span id="announcement-icon" class="announcement-icon" aria-hidden="true"></span><div><strong id="announcement-title"></strong><span id="announcement-detail"></span></div></div>
       <pre id="debug-panel" class="debug-panel" hidden></pre>
       <div class="arena-corner">RED BASE <span>←</span> BLUE BASE <span>→</span></div>
     </section>
@@ -124,7 +126,7 @@ app.innerHTML = `
       </details>
       <div id="wall-options" class="editor-options" hidden><div class="section-kicker">WALL</div><div class="editor-actions"><button id="rotate-wall" type="button">Rotate 90°</button><button id="delete-wall" type="button">Delete Wall</button></div></div>
       <div id="depot-options" class="editor-options" hidden><div class="section-kicker">DEPOT</div><div class="editor-actions"><button id="shrink-depot" type="button">Size −</button><button id="grow-depot" type="button">Size +</button><button id="delete-depot" type="button">Delete Depot</button></div><label id="depot-capacity-setting" class="editor-setting">Capacity <input id="depot-capacity" type="number" min="1" max="32" step="1" value="8" inputmode="numeric"></label></div>
-      <div id="flag-options" class="editor-options" hidden><div class="section-kicker">FLAG + BASE</div><button id="reset-flag" class="editor-wide-button" type="button">Return to Default</button></div>
+      <div id="flag-options" class="editor-options" hidden><div class="section-kicker">FLAG + BASE</div><label class="control-setting"><span>Base size · both teams</span><output id="base-radius-value" for="base-radius"></output><input id="base-radius" type="range" min="${BASE_RADIUS_RANGE.min}" max="${BASE_RADIUS_RANGE.max}" step="0.05"></label><p class="hint">Move flags inward to allow larger bases. Base size also sets the scoring area.</p><button id="reset-flag" class="editor-wide-button" type="button">Return Flag to Default Spot</button></div>
       <div id="power-region-options" class="editor-options" hidden><div class="section-kicker">POWER-UP REGION</div><div class="editor-actions"><button id="region-width-down" type="button">Width −</button><button id="region-width-up" type="button">Width +</button><button id="region-depth-down" type="button">Depth −</button><button id="region-depth-up" type="button">Depth +</button><button id="delete-power-region" type="button">Delete Region</button></div></div>
       <details class="editor-section"><summary>ARENA SIZE</summary><label class="control-setting"><span>Width</span><output id="arena-width-value" for="arena-width"></output><input id="arena-width" type="range" min="${ARENA_DIMENSIONS.width.min}" max="${ARENA_DIMENSIONS.width.max}" step="2"></label><label class="control-setting"><span>Length</span><output id="arena-length-value" for="arena-length"></output><input id="arena-length" type="range" min="${ARENA_DIMENSIONS.length.min}" max="${ARENA_DIMENSIONS.length.max}" step="2"></label><p id="arena-size-hint" class="hint">Drag a slider to resize the arena. Existing objects stay in place.</p></details>
       <details class="editor-section"><summary>MAPS & SAVE</summary><div class="editor-actions"><button id="save-custom-map" type="button">Save Custom</button><button id="save-as-map" type="button">Save As</button><button id="new-map" type="button">New Map</button><button id="reset-arena" type="button">Reset to Classic</button><button id="play-arena" type="button">Play Arena</button></div><p class="hint">Custom maps live on this device. Built-in edits stay in this session until saved.</p>
@@ -184,6 +186,7 @@ const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
 const displayHelp = document.querySelector<HTMLDivElement>('#display-help')!;
 const rotateOverlay = document.querySelector<HTMLDivElement>('#rotate-overlay')!;
 const gameToast = document.querySelector<HTMLDivElement>('#game-toast')!;
+const announcement = document.querySelector<HTMLDivElement>('#match-announcement')!;
 const debugPanel = document.querySelector<HTMLElement>('#debug-panel')!;
 const matchOverlay = document.querySelector<HTMLDivElement>('#match-overlay')!;
 const readyScreen = document.querySelector<HTMLDivElement>('#ready-screen')!;
@@ -310,7 +313,7 @@ function updateUi(): void {
     wall ? `${WALL_TYPES[wall.type].label} wall · ${WALL_TYPES[wall.type].maxHealth} HP` :
     depot ? `${depot.type === 'wall' ? 'Wall' : 'Bomb'} depot · radius ${depot.radius.toFixed(2)} · holds ${depot.capacity}` :
     region ? `Power-up region · ${(region.bounds.maxX - region.bounds.minX).toFixed(1)} × ${(region.bounds.maxZ - region.bounds.minZ).toFixed(1)}` :
-    flag ? `${flag.toUpperCase()} flag + base · drag to move` : 'Choose an object or tap one to select');
+    flag ? `${flag.toUpperCase()} flag + base · radius ${arena.baseRadius.toFixed(2)} · drag to move` : 'Choose an object or tap one to select');
   for (const [tool, id] of [['wood', 'add-wood'], ['stone', 'add-stone'], ['wall-depot', 'add-wall-depot'], ['bomb-depot', 'add-bomb-depot'], ['power-region', 'add-power-region']] as const) {
     const button = document.querySelector<HTMLButtonElement>(`#${id}`)!;
     button.setAttribute('aria-pressed', String(placementTool === tool));
@@ -319,6 +322,8 @@ function updateUi(): void {
   document.querySelector<HTMLElement>('#wall-options')!.hidden = true;
   document.querySelector<HTMLElement>('#depot-options')!.hidden = !single || !depot || !!placementTool;
   document.querySelector<HTMLElement>('#flag-options')!.hidden = !single || !flag || !!placementTool;
+  document.querySelector<HTMLInputElement>('#base-radius')!.value = String(arena.baseRadius);
+  document.querySelector<HTMLOutputElement>('#base-radius-value')!.value = `${arena.baseRadius.toFixed(2)} units`;
   document.querySelector<HTMLElement>('#power-region-options')!.hidden = !single || !region || !!placementTool;
   document.querySelector<HTMLElement>('#selection-inspector')!.hidden = !selectedIds.size || !!placementTool;
   document.querySelector<HTMLElement>('#alignment-tools')!.hidden = selectedIds.size < 2;
@@ -452,6 +457,10 @@ function resetMatch(): void {
   game = new Game(arena, mode, Math.random, gameSettings);
   lastTheftSequence = 0;
   toastUntil = 0;
+  lastNotice = null;
+  announcementUntil = 0;
+  announcementQueue.length = 0;
+  announcement.hidden = true;
   touchMove.red = { x: 0, z: 0 };
   touchMove.blue = { x: 0, z: 0 };
   updateUi();
@@ -1273,6 +1282,18 @@ document.querySelector('#reset-flag')!.addEventListener('click', () => {
   editorMessage = '';
   saveAndRefresh();
 });
+document.querySelector<HTMLInputElement>('#base-radius')!.addEventListener('input', event => {
+  const radius = Number((event.currentTarget as HTMLInputElement).value);
+  const candidate = validateArenaDefinition({ ...arena, baseRadius: radius });
+  if (!candidate) {
+    editorMessage = 'Move a flag or wall inward before making the bases this large.';
+    updateUi();
+    return;
+  }
+  arena.baseRadius = candidate.baseRadius;
+  editorMessage = '';
+  saveAndRefresh();
+});
 function resizeDepot(change: number): void {
   const depot = selectedDepot();
   if (!depot) return;
@@ -1585,7 +1606,22 @@ let lastEvent = '';
 let lastInventory = '';
 let lastTheftSequence = 0;
 let toastUntil = 0;
+let lastNotice: GameNotice | null = null;
+let announcementUntil = 0;
+type MatchAnnouncement = { team: Team | null; icon: string; title: string; detail: string };
+const announcementQueue: MatchAnnouncement[] = [];
 let lastDebug = 0;
+function showAnnouncement(team: Team | null, icon: string, title: string, detail: string, now: number): void {
+  announcement.dataset.team = team ?? 'neutral';
+  document.querySelector<HTMLElement>('#announcement-icon')!.textContent = icon;
+  document.querySelector<HTMLElement>('#announcement-title')!.textContent = title;
+  document.querySelector<HTMLElement>('#announcement-detail')!.textContent = detail;
+  announcement.hidden = false;
+  announcement.classList.remove('show');
+  void announcement.offsetWidth;
+  announcement.classList.add('show');
+  announcementUntil = now + 2600;
+}
 function frame(now: number): void {
   for (const team of ['red', 'blue'] as const) if (remoteInputs[team].expire(now)) {
     remoteStatus[team].textContent = 'CONTROLLER PAUSED · waiting for input';
@@ -1616,15 +1652,27 @@ function frame(now: number): void {
     }
   } else accumulator = 0;
   if (game.state.event !== lastEvent) { lastEvent = game.state.event; updateUi(); }
+  const notice = game.state.notice;
+  if (notice && notice !== lastNotice) {
+    lastNotice = notice;
+    if (notice.kind === 'flag-pickup') announcementQueue.push({ team: notice.team, icon: '⚑', title: `${notice.team!.toUpperCase()} HAS THE FLAG!`, detail: 'Run it home!' });
+    else announcementQueue.push({ team: notice.team, icon: '↩', title: notice.team ? `${notice.team.toUpperCase()} RETURNS THE FLAG!` : 'BOTH FLAGS RETURNED!', detail: 'Carrier tagged · flag back at base' });
+  }
   const inventory = JSON.stringify([game.deployments.inventory,
     game.powerUps.players.red.charges, game.powerUps.players.blue.charges]);
   if (inventory !== lastInventory) { lastInventory = inventory; updateInventoryUi(); }
   if (game.lastTheft && game.lastTheft.sequence !== lastTheftSequence) {
     lastTheftSequence = game.lastTheft.sequence;
-    gameToast.textContent = game.lastTheft.text;
-    toastUntil = now + 2400;
+    const theft = game.lastTheft;
+    announcementQueue.push({ team: theft.defender, icon: '✦', title: `${theft.defender.toUpperCase()} STEALS SUPPLIES!`,
+      detail: `Tagged ${theft.invader.toUpperCase()}  ·  ▥ +${theft.walls} walls  ·  ● +${theft.bombs} bombs` });
+  }
+  if (now > announcementUntil && announcementQueue.length) {
+    const next = announcementQueue.shift()!;
+    showAnnouncement(next.team, next.icon, next.title, next.detail, now);
   }
   gameToast.hidden = editing || now > toastUntil;
+  announcement.hidden = editing || now > announcementUntil;
   if (debugEnabled && now - lastDebug > 250) {
     lastDebug = now;
     const teamLine = (team: Team) => `${team.toUpperCase()} ${game.economy.territory[team]}  W:${game.deployments.inventory[team].wall} B:${game.deployments.inventory[team].bomb}  passive:${game.economy.passiveBombRemaining[team].toFixed(1)}s  speed:${game.powerUps.players[team].speedRemaining.toFixed(1)}s shield:${game.powerUps.players[team].shieldRemaining.toFixed(1)}s mega:${game.powerUps.players[team].charges['mega-bomb']}`;

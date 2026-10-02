@@ -24,7 +24,7 @@ export class ArenaView {
   private readonly powerRegionGroup = new THREE.Group();
   private readonly pickupGroup = new THREE.Group();
   private playerGroups: Record<Team, THREE.Group>;
-  private readonly groundMarkers: Record<Team, { group: THREE.Group; ring: THREE.Mesh; stem: THREE.Mesh }>;
+  private readonly groundMarkers: Record<Team, { group: THREE.Group; ring: THREE.Mesh; carrierHalo: THREE.Mesh; stem: THREE.Mesh }>;
   private flagGroups: Record<Team, THREE.Group>;
   private readonly wallMeshes = new Map<string, THREE.Mesh>();
   private readonly depotMeshes = new Map<string, THREE.Mesh>();
@@ -193,19 +193,25 @@ export class ArenaView {
     return group;
   }
 
-  private makeGroundMarker(team: Team): { group: THREE.Group; ring: THREE.Mesh; stem: THREE.Mesh } {
+  private makeGroundMarker(team: Team): { group: THREE.Group; ring: THREE.Mesh; carrierHalo: THREE.Mesh; stem: THREE.Mesh } {
     const group = new THREE.Group();
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.075, 8, 40),
       new THREE.MeshBasicMaterial({ color: this.theme[team], transparent: true, opacity: 0.7, depthWrite: false }));
     ring.rotation.x = Math.PI / 2;
     ring.position.y = 0.045;
     group.add(ring);
+    const carrierHalo = new THREE.Mesh(new THREE.TorusGeometry(0.94, 0.105, 10, 48),
+      new THREE.MeshBasicMaterial({ color: 0xffed79, transparent: true, opacity: 0.94, depthWrite: false }));
+    carrierHalo.rotation.x = Math.PI / 2;
+    carrierHalo.position.y = 0.065;
+    carrierHalo.visible = false;
+    group.add(carrierHalo);
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 6),
       new THREE.MeshBasicMaterial({ color: this.theme[team], transparent: true, opacity: 0.45, depthWrite: false }));
     stem.visible = false;
     group.add(stem);
     this.scene.add(group);
-    return { group, ring, stem };
+    return { group, ring, carrierHalo, stem };
   }
 
   private makeFlag(team: Team): THREE.Group {
@@ -226,6 +232,7 @@ export class ArenaView {
       new THREE.ExtrudeGeometry(pennant, { depth: 0.075, bevelEnabled: false }), cloth, 0, 0, -0.037,
     ));
     group.traverse(object => { object.userData.flagId = `flag:${team}`; });
+    group.scale.setScalar(1.3);
     this.scene.add(group);
     return group;
   }
@@ -315,10 +322,10 @@ export class ArenaView {
       const base = new THREE.Group();
       base.position.set(p.x, 0, p.z);
       const bottom = this.solid(
-        new THREE.CylinderGeometry(1.25, 1.37, 0.24, 32),
+        new THREE.CylinderGeometry(arena.baseRadius, arena.baseRadius + 0.12, 0.24, 32),
         this.material(this.shade(this.theme[team], 0.5)), 0, 0.12, 0,
       );
-      const top = this.solid(new THREE.CylinderGeometry(1.05, 1.05, 0.06, 32),
+      const top = this.solid(new THREE.CylinderGeometry(arena.baseRadius * 0.84, arena.baseRadius * 0.84, 0.06, 32),
         this.material(selected.has(`flag:${team}`) ? this.theme.sand : this.theme[team]), 0, 0.27, 0);
       for (const mesh of [bottom, top]) {
         mesh.userData.flagId = `flag:${team}`;
@@ -326,7 +333,7 @@ export class ArenaView {
         base.add(mesh);
       }
       if (selected.has(`flag:${team}`)) {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(1.42, 0.08, 8, 40),
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(arena.baseRadius + 0.17, 0.08, 8, 40),
           new THREE.MeshBasicMaterial({ color: this.theme.sand }));
         ring.rotation.x = Math.PI / 2;
         ring.position.y = 0.08;
@@ -695,12 +702,40 @@ export class ArenaView {
   private makePickup(pickup: PowerUpPickup): THREE.Group {
     const definition = POWER_UPS[pickup.definitionId];
     const group = new THREE.Group();
-    const geometry = definition.presentation.shape === 'bolt' ? new THREE.OctahedronGeometry(0.42)
-      : definition.presentation.shape === 'bomb' ? new THREE.DodecahedronGeometry(0.48)
-        : new THREE.IcosahedronGeometry(0.43, 1);
-    const core = this.solid(geometry, new THREE.MeshStandardMaterial({ color: definition.presentation.color,
-      emissive: definition.presentation.color, emissiveIntensity: 0.8, metalness: 0.25, roughness: 0.35 }), 0, 0.8, 0);
+    const core = new THREE.Group();
     core.name = 'pickup-core';
+    core.position.y = 0.8;
+    const bright = new THREE.MeshStandardMaterial({ color: definition.presentation.color,
+      emissive: definition.presentation.color, emissiveIntensity: 0.7, metalness: 0.3, roughness: 0.28 });
+    if (pickup.definitionId === 'speed') {
+      const bolt = new THREE.Shape();
+      bolt.moveTo(0.08, 0.63); bolt.lineTo(-0.34, 0.03); bolt.lineTo(-0.05, 0.03);
+      bolt.lineTo(-0.25, -0.62); bolt.lineTo(0.38, 0.14); bolt.lineTo(0.08, 0.14);
+      bolt.lineTo(0.27, 0.63); bolt.closePath();
+      core.add(this.solid(new THREE.ExtrudeGeometry(bolt, { depth: 0.18, bevelEnabled: true,
+        bevelThickness: 0.05, bevelSize: 0.04, bevelSegments: 2 }), bright, 0, 0, -0.09));
+      const spark = this.solid(new THREE.OctahedronGeometry(0.11), this.material(0xfff8c4), -0.32, 0.51, 0);
+      core.add(spark);
+    } else if (pickup.definitionId === 'shield') {
+      const shield = new THREE.Shape();
+      shield.moveTo(0, 0.62); shield.lineTo(0.49, 0.42); shield.lineTo(0.42, -0.21);
+      shield.quadraticCurveTo(0.29, -0.5, 0, -0.64);
+      shield.quadraticCurveTo(-0.29, -0.5, -0.42, -0.21);
+      shield.lineTo(-0.49, 0.42); shield.closePath();
+      core.add(this.solid(new THREE.ExtrudeGeometry(shield, { depth: 0.16, bevelEnabled: true,
+        bevelThickness: 0.045, bevelSize: 0.035, bevelSegments: 2 }), bright, 0, 0, -0.08));
+      core.add(this.solid(new THREE.SphereGeometry(0.13, 10, 8), this.material(0xe8ffff, 0.2), 0, 0.06, 0.18));
+    } else {
+      core.add(this.solid(new THREE.SphereGeometry(0.5, 20, 14), this.material(0x30213a, 0.32), 0, -0.08, 0));
+      const band = this.solid(new THREE.TorusGeometry(0.38, 0.08, 8, 28), bright, 0, -0.08, 0);
+      band.rotation.x = Math.PI / 2;
+      core.add(band);
+      core.add(this.solid(new THREE.CylinderGeometry(0.15, 0.18, 0.18, 12), bright, 0, 0.44, 0));
+      const fuse = this.solid(new THREE.CylinderGeometry(0.055, 0.055, 0.25, 8), this.material(0xf7e0a6), 0.08, 0.65, 0);
+      fuse.rotation.z = -0.38;
+      core.add(fuse);
+      core.add(this.solid(new THREE.OctahedronGeometry(0.16), this.material(0xffd66e), 0.17, 0.8, 0));
+    }
     group.add(core);
     const halo = new THREE.Mesh(new THREE.RingGeometry(definition.pickupRadius - 0.07, definition.pickupRadius, 40),
       new THREE.MeshBasicMaterial({ color: definition.presentation.color, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false }));
@@ -773,10 +808,13 @@ export class ArenaView {
       marker.group.position.set(data.position.x, 0, data.position.z);
       const height = Math.max(0, data.height);
       const airborne = data.airborne || height > 0.08;
-      marker.ring.scale.setScalar(airborne ? Math.max(0.48, 0.72 / (1 + height * 0.38)) : 1);
+      const carrying = data.carrying !== null;
+      marker.ring.scale.setScalar(airborne ? Math.max(0.48, 0.72 / (1 + height * 0.38)) : carrying ? 1.42 : 1);
       const ringMaterial = marker.ring.material as THREE.MeshBasicMaterial;
-      ringMaterial.color.set(airborne ? AIRBORNE_MARKER_COLOR : this.theme[team]);
-      ringMaterial.opacity = airborne ? 0.96 : 0.7;
+      ringMaterial.color.set(airborne ? AIRBORNE_MARKER_COLOR : carrying ? 0xfff097 : this.theme[team]);
+      ringMaterial.opacity = airborne || carrying ? 1 : 0.7;
+      marker.carrierHalo.visible = carrying;
+      marker.carrierHalo.scale.setScalar(airborne ? Math.max(0.6, 0.82 / (1 + height * 0.3)) : 1 + 0.06 * Math.sin(performance.now() / 180));
       (marker.stem.material as THREE.MeshBasicMaterial).color.set(AIRBORNE_MARKER_COLOR);
       marker.stem.visible = height > 0.15;
       marker.stem.scale.y = height;

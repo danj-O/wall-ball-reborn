@@ -26,6 +26,7 @@ test('custom maps round-trip locally and legacy single arena migrates', () => {
   const data = new Map<string, string>();
   const storage = { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => { data.set(key, value); } };
   const source = validateMapDocument(classic)!;
+  source.arena.baseRadius = 1.6;
   saveLocalMaps(storage, [source]);
   assert.ok(data.has(LOCAL_MAPS_KEY));
   assert.deepEqual(loadLocalMaps(storage), [source]);

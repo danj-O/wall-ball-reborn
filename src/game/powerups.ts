@@ -26,7 +26,7 @@ export type PowerUpDefinition = {
 export const POWER_UP_CONFIG = {
   firstSpawnSeconds: [10, 15], intervalSeconds: [15, 25], maxActive: 2,
   locationAttempts: 40, spawnRadius: 0.65, minPlayerDistance: 3,
-  wallClearance: 0.9, depotClearance: 0.5, baseClearance: 1.9,
+  wallClearance: 0.9, depotClearance: 0.5, baseClearance: 0.4,
   speedMultiplier: 1.35, speedSeconds: 6, shieldSeconds: 8,
   maxMegaCharges: 2,
 } as const;
@@ -56,7 +56,7 @@ export function powerUpSpawnRejection(position: Vec2, arena: ArenaDefinition, wa
   if (territoryAt(position, arena) !== 'contested' || !arena.powerupSpawnAreas.some(region => pointInRegion(position, region))) return 'region';
   if (walls.some(wall => circleTouchesWall(position, c.wallClearance, wall))) return 'wall';
   if (arena.depots.some(depot => Math.hypot(position.x - depot.position.x, position.z - depot.position.z) < depot.radius + c.depotClearance)) return 'depot';
-  if (Object.values(arena.flagPositions).some(base => Math.hypot(position.x - base.x, position.z - base.z) < c.baseClearance)) return 'base';
+  if (Object.values(arena.flagPositions).some(base => Math.hypot(position.x - base.x, position.z - base.z) < arena.baseRadius + c.baseClearance)) return 'base';
   if (Object.values(players).some(player => Math.hypot(position.x - player.position.x, position.z - player.position.z) < c.minPlayerDistance)) return 'player';
   if (active.some(pickup => Math.hypot(position.x - pickup.position.x, position.z - pickup.position.z) < 2 * c.spawnRadius + 0.4)) return 'pickup';
   return null;

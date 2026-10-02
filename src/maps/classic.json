@@ -21,14 +21,15 @@
     },
     "flagPositions": {
       "red": {
-        "x": -23.2,
+        "x": -22.5,
         "z": 0
       },
       "blue": {
-        "x": 23.2,
+        "x": 22.5,
         "z": 0
       }
     },
+    "baseRadius": 2.3,
     "territories": {
       "red": [
         {
@@ -68,8 +69,8 @@
       {
         "id": "central-opportunities",
         "bounds": {
-          "minX": -2.5,
-          "maxX": 2.5,
+          "minX": -3,
+          "maxX": 3,
           "minZ": -11,
           "maxZ": 11
         }
@@ -317,17 +318,6 @@
         "width": 0.8,
         "depth": 3.2,
         "rotation": 0
-      },
-      {
-        "id": "wall-custom-1",
-        "type": "wood",
-        "position": {
-          "x": -20.25,
-          "z": 0
-        },
-        "width": 2.25,
-        "depth": 0.5,
-        "rotation": 1.5707963267948966
       },
       {
         "id": "wall-custom-2",
@@ -657,7 +647,7 @@
           "x": 0,
           "z": -13.5
         },
-        "radius": 1.7,
+        "radius": 2.25,
         "capacity": 8
       },
       {
@@ -667,7 +657,7 @@
           "x": 0,
           "z": 13.45
         },
-        "radius": 1.7,
+        "radius": 2.25,
         "capacity": 8
       }
     ]

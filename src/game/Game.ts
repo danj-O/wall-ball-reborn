@@ -27,7 +27,7 @@ export class Game {
   physics: PhysicsWorld;
   powerUps: PowerUpState;
   match: MatchState = createMatchState();
-  lastTheft: { sequence: number; text: string } | null = null;
+  lastTheft: { sequence: number; text: string; defender: Team; invader: Team; walls: number; bombs: number } | null = null;
   private theftSequence = 0;
   private nextEntityId = 0;
   private readonly rng: () => number;
@@ -239,7 +239,7 @@ export class Game {
         if (stolen.walls + stolen.bombs > 0) {
           this.match.stats[defender].resourcesStolen += stolen.walls + stolen.bombs;
           const text = `${defender.toUpperCase()} tagged ${invader.toUpperCase()} · +${stolen.walls} walls, +${stolen.bombs} bombs`;
-          this.lastTheft = { sequence: ++this.theftSequence, text };
+          this.lastTheft = { sequence: ++this.theftSequence, text, defender, invader, walls: stolen.walls, bombs: stolen.bombs };
           if (this.state.event === previousEvent) this.state.event = text;
         }
       }

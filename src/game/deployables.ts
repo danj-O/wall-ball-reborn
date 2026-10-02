@@ -59,7 +59,6 @@ export interface DeployableDefinition {
 }
 
 const PLAYER_CLEARANCE = 0.16;
-const BASE_CLEARANCE = 1.33;
 const BOUNDARY_CLEARANCE = 0.15;
 export const BOMB_DAMAGE = 50;
 export const BOMB_RADIUS = 2.5;
@@ -115,7 +114,7 @@ function wallPlacementValid(placement: Placement, context: PlacementContext): bo
   if (!boxInsideArena(candidate, context.arena)) return false;
   if (context.walls.some(wall => boxesOverlap(candidate, wall))) return false;
   if (Object.values(context.players).some(player => circleTouchesWall(player.position, 0.38 + PLAYER_CLEARANCE, candidate))) return false;
-  if (Object.values(context.arena.flagPositions).some(point => circleTouchesWall(point, BASE_CLEARANCE, candidate))) return false;
+  if (Object.values(context.arena.flagPositions).some(point => circleTouchesWall(point, context.arena.baseRadius + 0.08, candidate))) return false;
   if (context.bombs.some(bomb => circleTouchesWall(bomb.phase === 'flying' ? bomb.target : bomb.position, 0.44, candidate))) return false;
   return true;
 }

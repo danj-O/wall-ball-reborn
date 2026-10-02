@@ -20,11 +20,14 @@ export const DEFAULT_PLAYER_WALL_TYPE: WallType = 'wood';
 export const WALL_HEIGHT = 1.35;
 export const DEFAULT_DEPOT_CAPACITY = 8;
 export const MAX_DEPOT_CAPACITY = 32;
+export const DEFAULT_BASE_RADIUS = 1.5;
+export const BASE_RADIUS_RANGE = { min: 1, max: 2.5 } as const;
 
 export interface ArenaDefinition {
   bounds: ArenaBounds;
   playerSpawns: Record<Team, Vec2>;
   flagPositions: Record<Team, Vec2>;
+  baseRadius: number;
   territories: Record<Territory, RectRegion[]>;
   powerupSpawnAreas: RectRegion[];
   walls: WallDefinition[];
@@ -61,6 +64,7 @@ export const BASE_ARENA: ArenaDefinition = {
   bounds: defaultBounds,
   playerSpawns: { red: { x: -21.5, z: 0 }, blue: { x: 21.5, z: 0 } },
   flagPositions: { red: { x: -23.2, z: 0 }, blue: { x: 23.2, z: 0 } },
+  baseRadius: DEFAULT_BASE_RADIUS,
   territories: defaultTerritories(defaultBounds),
   powerupSpawnAreas: [{ id: 'central-opportunities', bounds: { minX: -2.5, maxX: 2.5, minZ: -8, maxZ: 8 } }],
   walls: [
@@ -112,11 +116,12 @@ export function depotFitsArena(depot: DepotDefinition, arena: ArenaDefinition): 
 }
 export function flagFitsArena(team: Team, position: Vec2, arena: ArenaDefinition): boolean {
   const b = arena.bounds;
-  if (position.x < b.minX + 1.35 || position.x > b.maxX - 1.35 ||
-      position.z < b.minZ + 1.35 || position.z > b.maxZ - 1.35) return false;
+  const radius = arena.baseRadius ?? DEFAULT_BASE_RADIUS;
+  if (position.x < b.minX + radius + 0.15 || position.x > b.maxX - radius - 0.15 ||
+      position.z < b.minZ + radius + 0.15 || position.z > b.maxZ - radius - 0.15) return false;
   const enemy = team === 'red' ? 'blue' : 'red';
-  if (Math.hypot(position.x - arena.flagPositions[enemy].x, position.z - arena.flagPositions[enemy].z) < 2.6) return false;
-  return !arena.walls.some(wall => circleTouchesWall(position, 1.3, wall));
+  if (Math.hypot(position.x - arena.flagPositions[enemy].x, position.z - arena.flagPositions[enemy].z) < radius * 2 + 0.1) return false;
+  return !arena.walls.some(wall => circleTouchesWall(position, radius + 0.05, wall));
 }
 
 // Old saves keep customized walls and expand the original stock map in place.
@@ -134,6 +139,7 @@ export function migrateArena(saved: ArenaDefinition): ArenaDefinition {
   arena.powerupSpawnAreas ??= structuredClone(BASE_ARENA.powerupSpawnAreas);
   arena.depots ??= structuredClone(BASE_ARENA.depots).filter(depot => depotFitsArena(depot, arena));
   arena.depots = arena.depots.map(depot => ({ ...depot, capacity: depot.capacity ?? DEFAULT_DEPOT_CAPACITY }));
+  arena.baseRadius ??= DEFAULT_BASE_RADIUS;
   return arena;
 }
 
@@ -171,7 +177,7 @@ export function wallFitsArena(wall: WallDefinition, arena: ArenaDefinition): boo
   if (wall.position.x - halfX < b.minX + 0.2 || wall.position.x + halfX > b.maxX - 0.2 ||
       wall.position.z - halfZ < b.minZ + 0.2 || wall.position.z + halfZ > b.maxZ - 0.2) return false;
   return !Object.values(arena.playerSpawns).some(point => circleTouchesWall(point, 0.85, wall)) &&
-    !Object.values(arena.flagPositions).some(point => circleTouchesWall(point, 1.3, wall)) &&
+    !Object.values(arena.flagPositions).some(point => circleTouchesWall(point, (arena.baseRadius ?? DEFAULT_BASE_RADIUS) + 0.05, wall)) &&
     !arena.walls.some(other => other.id !== wall.id && wallsOverlap(wall, other));
 }
 
@@ -193,6 +199,9 @@ export function validateArenaDefinition(value: unknown, report?: (reason: string
     !object(value.flagPositions) || !object(value.territories) ||
     !Array.isArray(value.walls) || !Array.isArray(value.depots) || !Array.isArray(value.powerupSpawnAreas)) return invalid('Arena data is incomplete.');
   const arena = value as unknown as ArenaDefinition;
+  const baseRadius = arena.baseRadius === undefined ? DEFAULT_BASE_RADIUS : arena.baseRadius;
+  if (!finite(baseRadius) || baseRadius < BASE_RADIUS_RANGE.min || baseRadius > BASE_RADIUS_RANGE.max) return invalid('Base radius is outside the allowed range.');
+  const checkedArena = { ...arena, baseRadius };
   const width = arena.bounds.maxX - arena.bounds.minX;
   const length = arena.bounds.maxZ - arena.bounds.minZ;
   if (width < ARENA_DIMENSIONS.width.min || width > ARENA_DIMENSIONS.width.max ||
@@ -220,11 +229,11 @@ export function validateArenaDefinition(value: unknown, report?: (reason: string
     if (!object(wall) || typeof wall.id !== 'string' || !wall.id || ids.has(wall.id) ||
       !['wood', 'stone'].includes(wall.type) || !validPoint(wall.position) ||
       !finite(wall.width) || !finite(wall.depth) || !finite(wall.rotation) ||
-      wall.width <= 0 || wall.depth <= 0 || !wallFitsArena(wall, arena)) return invalid(`Wall ${wall.id} no longer fits.`);
+      wall.width <= 0 || wall.depth <= 0 || !wallFitsArena(wall, checkedArena)) return invalid(`Wall ${wall.id} no longer fits.`);
     ids.add(wall.id);
   }
   for (const team of ['red', 'blue'] as const) {
-    if (!flagFitsArena(team, arena.flagPositions[team], arena) ||
+    if (!flagFitsArena(team, arena.flagPositions[team], checkedArena) ||
       arena.walls.some(wall => circleTouchesWall(arena.playerSpawns[team], 0.85, wall))) return invalid(`${team} flag or spawn no longer fits.`);
   }
   for (const depot of arena.depots) {
@@ -242,6 +251,7 @@ export function validateArenaDefinition(value: unknown, report?: (reason: string
     bounds: { ...arena.bounds },
     playerSpawns: { red: { ...arena.playerSpawns.red }, blue: { ...arena.playerSpawns.blue } },
     flagPositions: { red: { ...arena.flagPositions.red }, blue: { ...arena.flagPositions.blue } },
+    baseRadius,
     territories: {
       red: arena.territories.red.map(region => ({ id: region.id, bounds: { ...region.bounds } })),
       contested: arena.territories.contested.map(region => ({ id: region.id, bounds: { ...region.bounds } })),
