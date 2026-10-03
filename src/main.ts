@@ -146,6 +146,7 @@ app.innerHTML = `
     <div id="appearance-panel" class="editor-dock appearance-dock" hidden>
       <div class="editor-heading"><strong>ARENA THEME</strong><span>Warm Meadow · changes preview live</span></div>
       <button id="done-appearance" class="editor-wide-button" type="button">Done</button>
+      <label class="appearance-setting"><span>Use 3D Models</span><input id="use-3d-models" type="checkbox" checked></label>
       <div id="appearance-fields"></div>
       <div id="developer-appearance-defaults" class="developer-controls" hidden><button id="save-appearance-default" class="editor-wide-button" type="button">Dev Save as Default</button><p class="hint">Writes the global preset for new devices.</p><p id="appearance-default-status" class="control-default-status" role="status" aria-live="polite"></p></div>
       <button id="reset-appearance" class="editor-wide-button" type="button">Reset Theme</button>
@@ -168,6 +169,13 @@ app.innerHTML = `
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!;
 const view = new ArenaView(viewport, arena, appearance);
+const use3dModels = document.querySelector<HTMLInputElement>('#use-3d-models')!;
+use3dModels.checked = localStorage.getItem('wall-ball-use-3d-models') !== 'false';
+view.setModelsEnabled(use3dModels.checked);
+use3dModels.addEventListener('change', () => {
+  localStorage.setItem('wall-ball-use-3d-models', String(use3dModels.checked));
+  view.setModelsEnabled(use3dModels.checked);
+});
 const status = document.querySelector<HTMLDivElement>('#status')!;
 const editButton = document.querySelector<HTMLButtonElement>('#edit-button')!;
 const resetButton = document.querySelector<HTMLButtonElement>('#reset-button')!;

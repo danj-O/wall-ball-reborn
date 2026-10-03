@@ -6,6 +6,8 @@ import type { EconomyState, RuntimeDepot } from '../game/economy.ts';
 import { POWER_UP_CONFIG, POWER_UPS, type PowerUpPickup, type PowerUpState } from '../game/powerups.ts';
 import { CAMERA_SETTINGS, frameArena } from './camera.ts';
 import { DEFAULT_APPEARANCE, type AppearanceTheme } from './appearance.ts';
+import { ModelLibrary } from './ModelLibrary.ts';
+import { PlayerVisual } from './PlayerVisual.ts';
 
 const AIRBORNE_MARKER_COLOR = 0xffdf57;
 
@@ -17,6 +19,10 @@ export class ArenaView {
   private readonly hemisphere = new THREE.HemisphereLight();
   private readonly tabletop: THREE.Mesh;
   private theme: AppearanceTheme;
+  private readonly modelLibrary = new ModelLibrary(import.meta.env.BASE_URL);
+  private readonly playerVisuals = new Map<Team, PlayerVisual>();
+  private lastVisualFrame = 0;
+  private readonly lastPlayerPositions = new Map<Team, Vec2>();
   private readonly arenaGroup = new THREE.Group();
   private readonly wallsGroup = new THREE.Group();
   private readonly depotsGroup = new THREE.Group();
@@ -26,7 +32,7 @@ export class ArenaView {
   private playerGroups: Record<Team, THREE.Group>;
   private readonly groundMarkers: Record<Team, { group: THREE.Group; ring: THREE.Mesh; carrierHalo: THREE.Mesh; stem: THREE.Mesh }>;
   private flagGroups: Record<Team, THREE.Group>;
-  private readonly wallMeshes = new Map<string, THREE.Mesh>();
+  private readonly wallPickMeshes = new Map<string, THREE.Mesh>();
   private readonly depotMeshes = new Map<string, THREE.Mesh>();
   private readonly flagBaseMeshes: THREE.Mesh[] = [];
   private readonly bombGroups = new Map<string, THREE.Group>();
@@ -109,6 +115,8 @@ export class ArenaView {
     this.resize(container, arena);
   }
 
+  setModelsEnabled(enabled: boolean): void { this.modelLibrary.setEnabled(enabled); }
+
   private material(color: THREE.ColorRepresentation, metalness = 0): THREE.MeshStandardMaterial {
     return new THREE.MeshStandardMaterial({ color, roughness: 0.73, metalness });
   }
@@ -128,6 +136,7 @@ export class ArenaView {
     this.hemisphere.intensity = theme.ambientIntensity;
     this.renderer.toneMappingExposure = theme.exposure;
     for (const team of ['red', 'blue'] as const) {
+      this.playerVisuals.get(team)?.dispose();
       this.scene.remove(this.playerGroups[team], this.flagGroups[team]);
       this.disposeChildren(this.playerGroups[team]);
       this.disposeChildren(this.flagGroups[team]);
@@ -173,24 +182,27 @@ export class ArenaView {
       group.add(this.solid(new THREE.SphereGeometry(0.035, 7, 5), eyes, side * 0.11, 1.27, 0.275));
     }
     group.add(this.solid(new THREE.BoxGeometry(0.23, 0.11, 0.065), this.material(0xf1f5f6), 0, 0.76, 0.33));
+    const visual = new PlayerVisual(this.modelLibrary, group, this.theme[team]);
+    this.playerVisuals.set(team, visual);
+    const root = visual.root;
     const speedRing = new THREE.Mesh(new THREE.TorusGeometry(0.56, 0.055, 8, 36),
       new THREE.MeshBasicMaterial({ color: 0xffd364, transparent: true, opacity: 0.85 }));
     speedRing.rotation.x = Math.PI / 2;
     speedRing.position.y = 0.08;
     speedRing.name = 'speed-effect';
-    group.add(speedRing);
+    root.add(speedRing);
     const shield = new THREE.Mesh(new THREE.SphereGeometry(0.72, 20, 12),
       new THREE.MeshBasicMaterial({ color: 0x80e5ed, transparent: true, opacity: 0.18, depthWrite: false, side: THREE.DoubleSide }));
     shield.position.y = 0.78;
     shield.name = 'shield-effect';
-    group.add(shield);
+    root.add(shield);
     for (const [name, color, y] of [['speed-timer', 0xffd364, 1.85], ['shield-timer', 0x80e5ed, 1.96]] as const) {
       const bar = this.solid(new THREE.BoxGeometry(0.75, 0.07, 0.09), this.material(color), 0, y, 0);
       bar.name = name;
-      group.add(bar);
+      root.add(bar);
     }
-    this.scene.add(group);
-    return group;
+    this.scene.add(root);
+    return root;
   }
 
   private makeGroundMarker(team: Team): { group: THREE.Group; ring: THREE.Mesh; carrierHalo: THREE.Mesh; stem: THREE.Mesh } {
@@ -242,10 +254,12 @@ export class ArenaView {
   }
 
   private disposeChildren(group: THREE.Group): void {
+    this.modelLibrary.disposeUnder(group);
     const geometries = new Set<THREE.BufferGeometry>();
     const materials = new Set<THREE.Material>();
     group.traverse(object => {
       if (object instanceof THREE.Mesh || object instanceof THREE.LineSegments || object instanceof THREE.Line) {
+        if (object.userData.assetManaged) return;
         geometries.add(object.geometry);
         for (const material of Array.isArray(object.material) ? object.material : [object.material]) materials.add(material);
       }
@@ -395,7 +409,7 @@ export class ArenaView {
     if (signature === this.wallSignature) return;
     this.wallSignature = signature;
     this.disposeChildren(this.wallsGroup);
-    this.wallMeshes.clear();
+    this.wallPickMeshes.clear();
     for (const wall of walls) {
       const runtime = 'hp' in wall ? wall as RuntimeWall : null;
       const selected = selectedIds.has(wall.id);
@@ -410,12 +424,31 @@ export class ArenaView {
         sides.color.multiplyScalar(0.65 + health * 0.35);
         top.color.multiplyScalar(0.65 + health * 0.35);
       }
-      const mesh = this.solid(new THREE.BoxGeometry(wall.width, WALL_HEIGHT, wall.depth), sides, wall.position.x, WALL_HEIGHT / 2, wall.position.z);
+      const wallVisual = new THREE.Group();
+      wallVisual.position.set(wall.position.x, WALL_HEIGHT / 2, wall.position.z);
+      wallVisual.rotation.y = wall.rotation;
+      wallVisual.userData.wallId = wall.id;
+      const mesh = this.solid(new THREE.BoxGeometry(wall.width, WALL_HEIGHT, wall.depth), sides, 0, 0, 0);
       mesh.material = [sides, sides, top, sides, sides, sides];
-      mesh.rotation.y = wall.rotation;
       mesh.userData.wallId = wall.id;
-      this.wallsGroup.add(mesh);
-      this.wallMeshes.set(wall.id, mesh);
+      wallVisual.add(mesh);
+      if (editing) {
+        const pickProxy = new THREE.Mesh(new THREE.BoxGeometry(wall.width, WALL_HEIGHT, wall.depth),
+          new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false, colorWrite: false }));
+        pickProxy.userData.wallId = wall.id;
+        wallVisual.add(pickProxy);
+        this.wallPickMeshes.set(wall.id, pickProxy);
+      }
+      this.modelLibrary.mount(wall.type === 'wood' ? 'woodWall' : 'stoneWall', wallVisual, mesh, {
+        size: { width: wall.width, height: WALL_HEIGHT, depth: wall.depth }, anchorY: -WALL_HEIGHT / 2,
+      });
+      if (selected) {
+        const outline = new THREE.Mesh(new THREE.BoxGeometry(wall.width + 0.1, WALL_HEIGHT + 0.08, wall.depth + 0.1),
+          new THREE.MeshBasicMaterial({ color: this.theme.sand, wireframe: true, depthWrite: false }));
+        outline.userData.wallId = wall.id;
+        wallVisual.add(outline);
+      }
+      this.wallsGroup.add(wallVisual);
       if (runtime) {
         const barLength = wall.width * 0.8;
         const track = new THREE.Group();
@@ -502,20 +535,26 @@ export class ArenaView {
     const group = new THREE.Group();
     const projectile = new THREE.Group();
     projectile.name = 'projectile';
+    const fallback = new THREE.Group();
+    projectile.add(fallback);
     const mega = bomb.definitionId === 'mega-bomb';
     const dark = this.material(mega ? 0x6b327e : 0x202b34, 0.2);
     const teamColor = this.material(mega ? 0xf5a7f1 : this.theme[bomb.owner]);
-    projectile.add(this.solid(new THREE.SphereGeometry(bomb.physicalRadius, 16, 12), dark, 0, 0, 0));
+    fallback.add(this.solid(new THREE.SphereGeometry(bomb.physicalRadius, 16, 12), dark, 0, 0, 0));
     const band = this.solid(new THREE.TorusGeometry(bomb.physicalRadius * 0.85, 0.045, 8, 24), teamColor, 0, 0, 0);
     band.rotation.x = Math.PI / 2;
-    projectile.add(band);
-    projectile.add(this.solid(new THREE.CylinderGeometry(0.045, 0.045, 0.18, 8), this.material(0xe5e7d6), 0, bomb.physicalRadius + 0.04, 0));
+    fallback.add(band);
+    fallback.add(this.solid(new THREE.CylinderGeometry(0.045, 0.045, 0.18, 8), this.material(0xe5e7d6), 0, bomb.physicalRadius + 0.04, 0));
     const spark = this.material(0xffb54b);
     spark.emissive.setHex(0xff8a17);
     spark.emissiveIntensity = 1.5;
     const ember = this.solid(new THREE.SphereGeometry(0.09, 10, 8), spark, 0, bomb.physicalRadius + 0.16, 0);
     ember.name = 'ember';
     projectile.add(ember);
+    this.modelLibrary.mount(mega ? 'megaBomb' : 'bomb', projectile, fallback, {
+      size: { width: bomb.physicalRadius * 2, height: bomb.physicalRadius * 2, depth: bomb.physicalRadius * 2 },
+      anchorY: -bomb.physicalRadius,
+    });
     group.add(projectile);
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(bomb.blastRadius - 0.06, bomb.blastRadius + 0.06, 64),
@@ -792,6 +831,9 @@ export class ArenaView {
   }
 
   sync(state: GameState, arena: ArenaDefinition, editing: boolean, deployments: DeploymentState, economy: EconomyState, powerUps: PowerUpState): void {
+    const now = performance.now();
+    const visualDelta = this.lastVisualFrame ? Math.min(0.1, (now - this.lastVisualFrame) / 1000) : 0;
+    this.lastVisualFrame = now;
     this.powerRegionGroup.visible = editing;
     this.syncWalls(editing ? arena.walls : deployments.walls, editing);
     this.syncDepots(editing ? arena.depots : economy.depots, editing);
@@ -808,6 +850,11 @@ export class ArenaView {
       marker.group.position.set(data.position.x, 0, data.position.z);
       const height = Math.max(0, data.height);
       const airborne = data.airborne || height > 0.08;
+      const previousPosition = this.lastPlayerPositions.get(team);
+      const moving = previousPosition ? Math.hypot(data.position.x - previousPosition.x, data.position.z - previousPosition.z) > 0.002 : false;
+      this.playerVisuals.get(team)?.setMovementState(airborne ? 'airborne' : moving ? 'run' : 'idle');
+      this.playerVisuals.get(team)?.update(visualDelta);
+      this.lastPlayerPositions.set(team, { ...data.position });
       const carrying = data.carrying !== null;
       marker.ring.scale.setScalar(airborne ? Math.max(0.48, 0.72 / (1 + height * 0.38)) : carrying ? 1.42 : 1);
       const ringMaterial = marker.ring.material as THREE.MeshBasicMaterial;
@@ -855,11 +902,18 @@ export class ArenaView {
   pickArenaObject(clientX: number, clientY: number): string | null {
     this.setPointer(clientX, clientY);
     const hit = this.raycaster.intersectObjects([
-      ...this.wallMeshes.values(), ...this.depotMeshes.values(), ...this.flagBaseMeshes,
+      ...this.wallPickMeshes.values(), ...this.depotMeshes.values(), ...this.flagBaseMeshes,
       this.flagGroups.red, this.flagGroups.blue,
       ...this.powerRegionMeshes.values(),
     ], true)[0];
-    return hit ? String(hit.object.userData.wallId ?? hit.object.userData.depotId ?? hit.object.userData.flagId ?? hit.object.userData.powerRegionId) : null;
+    if (!hit) return null;
+    let object: THREE.Object3D | null = hit.object;
+    while (object) {
+      const id = object.userData.wallId ?? object.userData.depotId ?? object.userData.flagId ?? object.userData.powerRegionId;
+      if (id) return String(id);
+      object = object.parent;
+    }
+    return null;
   }
 
   groundPoint(clientX: number, clientY: number): Vec2 | null {

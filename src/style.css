@@ -99,6 +99,7 @@ h1 span { color: #ed6059; }
 .appearance-dock #reset-appearance { min-height: 38px; margin-top: 10px; }
 .appearance-setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 37px; color: #e7ede4; font-size: 11px; font-weight: 800; }
 .appearance-setting input[type="color"] { width: 53px; height: 31px; flex: none; padding: 2px; border: 1px solid #9caf9f; border-radius: 5px; background: #15221e; cursor: pointer; touch-action: manipulation; }
+.appearance-setting input[type="checkbox"] { width: 20px; height: 20px; accent-color: #81d8aa; touch-action: manipulation; }
 .editor-toolbar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 10px; }
 .editor-toolbar button, .editor-dock .editor-actions button { min-height: 38px; }
 .editor-toolbar button[aria-pressed="true"] { border-color: #f5d391; color: #ffe1a5; background: #4a4233; }

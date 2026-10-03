@@ -41,7 +41,7 @@ test('flag bases can move within bounds while avoiding walls and the other flag'
 
 test('base size persists, changes the scoring area, and cannot overlap the arena edge', () => {
   const arena = cloneArena(SAVED_DEFAULT_ARENA);
-  assert.equal(arena.baseRadius, DEFAULT_BASE_RADIUS);
+  assert.equal(arena.baseRadius, 2.3, 'the saved Classic map keeps its larger authored base');
   const old = structuredClone(arena) as Partial<typeof arena>;
   delete old.baseRadius;
   assert.equal(validateArenaDefinition(old)?.baseRadius, DEFAULT_BASE_RADIUS, 'older maps gain the default size');
