@@ -1,3 +1,4 @@
 Place licensed, self-contained `.glb` files here. See `docs/ASSET_PIPELINE.md`
 and `src/view/AssetRegistry.ts` for the subdirectories and model slots.
-Only the registry loads models; this directory intentionally contains no art yet.
+The first imported model is the KayKit Knight and its Rig_Medium animations.
+Other asset slots still use primitive fallbacks.

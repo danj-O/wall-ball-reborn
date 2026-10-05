@@ -36,16 +36,17 @@ export class ModelMount {
       if (!asset || this.disposed) return;
       const config = ASSET_REGISTRY[this.id];
       const scene = cloneSkinnedScene(asset.scene);
-      const tint = this.options.teamColor && config.teamAccent
-        ? this.library.teamMaterial(this.id, this.options.teamColor, asset.scene)
-        : null;
       scene.traverse(object => {
         if (!(object instanceof THREE.Mesh)) return;
         object.castShadow = config.castShadow;
         object.receiveShadow = config.receiveShadow;
         object.userData.assetManaged = true;
-        if (tint) {
-          const replace = (material: THREE.Material) => material.name === 'TEAM_ACCENT' ? tint : material;
+        if (this.options.teamColor && config.teamAccent) {
+          const meshAccent = config.teamAccentMeshes?.includes(object.name) ?? false;
+          const replace = (material: THREE.Material) =>
+            meshAccent || material.name === 'TEAM_ACCENT'
+              ? this.library.teamMaterial(this.id, this.options.teamColor!, material, meshAccent)
+              : material;
           object.material = Array.isArray(object.material) ? object.material.map(replace) : replace(object.material);
         }
       });
@@ -129,7 +130,17 @@ export class ModelLibrary {
         this.cache.set(id, unavailable);
         return unavailable;
       }
-      loaded = this.loader.loadAsync(url).catch(error => {
+      loaded = this.loader.loadAsync(url).then(async gltf => {
+        const files = config.animations?.files ?? [];
+        const extra = await Promise.all(files.map(async file => {
+          try { return (await this.loader.loadAsync(modelUrl(this.baseUrl, file))).animations; }
+          catch (error) {
+            console.warn(`Animations ${file} could not load; model remains available.`, error);
+            return [];
+          }
+        }));
+        return { ...gltf, animations: [...gltf.animations, ...extra.flat()] };
+      }).catch(error => {
         console.warn(`Model ${id} could not load; using primitive fallback.`, error);
         return null;
       });
@@ -149,6 +160,11 @@ export class ModelLibrary {
     for (const mount of this.mounts) mount.setEnabled(enabled);
   }
 
+  clearTeamMaterials(): void {
+    for (const material of this.teamMaterials.values()) material.dispose();
+    this.teamMaterials.clear();
+  }
+
   disposeUnder(root: THREE.Object3D): void {
     const mounts: ModelMount[] = [];
     root.traverse(object => {
@@ -159,20 +175,17 @@ export class ModelLibrary {
 
   release(mount: ModelMount): void { this.mounts.delete(mount); }
 
-  teamMaterial(id: ModelId, color: string, template: THREE.Object3D): THREE.Material | null {
-    const key = `${id}:${color}`;
+  teamMaterial(id: ModelId, color: string, source: THREE.Material, solidAccent = false): THREE.Material {
+    const key = `${id}:${color}:${source.uuid}:${solidAccent}`;
     const cached = this.teamMaterials.get(key);
     if (cached) return cached;
-    template.traverse(object => {
-      if (!(object instanceof THREE.Mesh) || this.teamMaterials.has(key)) return;
-      for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
-        if (material.name !== 'TEAM_ACCENT') continue;
-        const variant = material.clone();
-        if ('color' in variant && variant.color instanceof THREE.Color) variant.color.set(color);
-        this.teamMaterials.set(key, variant);
-        return;
-      }
-    });
-    return this.teamMaterials.get(key) ?? null;
+    const variant = source.clone();
+    if (variant instanceof THREE.MeshStandardMaterial) {
+      if (solidAccent) variant.map = null;
+      variant.color.set(color);
+      variant.needsUpdate = true;
+    }
+    this.teamMaterials.set(key, variant);
+    return variant;
   }
 }

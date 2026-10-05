@@ -10,6 +10,7 @@ import { DoubleTapZoomGuard } from './input/DoubleTapZoomGuard.ts';
 import { CONTROL_SIZE_RANGE, MOVE_AREA_RANGE, MOVE_INSET_RANGE, normalizeControlLayout, type ControlId, type ControlLayout } from './input/controlLayout.ts';
 import { ArenaView } from './view/ArenaView.ts';
 import { APPEARANCE_COLOR_FIELDS, APPEARANCE_LIGHT_RANGES, APPEARANCE_STORAGE_KEY, DEFAULT_APPEARANCE, loadAppearance, type AppearanceTheme } from './view/appearance.ts';
+import { CAMERA_STORAGE_KEY, CAMERA_TUNING_RANGES, DEFAULT_CAMERA_TUNING, loadCameraTuning, type CameraTuning } from './view/camera.ts';
 import { DEFAULT_GAME_SETTINGS, loadGameSettings } from './game/gameSettings.ts';
 import { GAME_SETTING_RANGES, type GameSettings, type ProjectileTuning } from './game/gameSettingsSchema.ts';
 import { alignSelection, deleteSelection, distributeSelection, duplicateSelection, EditorHistory, entityCenter, mirrorSelection, objectsInBox, rotateSelection, selectObject, snapshot, translateSelection, type EditResult } from './editor/arenaEditor.ts';
@@ -23,6 +24,7 @@ const CONTROL_STORAGE_KEY = 'wall-ball-reborn-controls-v1';
 const GAME_SETTINGS_STORAGE_KEY = 'wall-ball-reborn-game-settings-v1';
 const GAME_DEFAULT_SAVED_KEY = 'wall-ball-reborn-game-default-saved';
 const APPEARANCE_DEFAULT_SAVED_KEY = 'wall-ball-reborn-appearance-default-saved';
+const CAMERA_DEFAULT_SAVED_KEY = 'wall-ball-reborn-camera-default-saved';
 const ARENA_DEFAULT_SAVED_KEY = 'wall-ball-reborn-arena-default-saved';
 
 const bundled = import.meta.glob('./maps/*.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
@@ -44,10 +46,12 @@ let arena = workingCopy(activeMap);
 const mode = new CaptureTheFlag();
 let gameSettings = loadGameSettings(localStorage);
 let appearance = loadAppearance(localStorage);
+let cameraTuning = loadCameraTuning(localStorage);
 let game = new Game(arena, mode, Math.random, gameSettings);
 let editing = false;
 let editingControls = false;
 let appearanceOpen = false;
+let cameraOpen = false;
 let selectedControl: ControlId = 'red-move';
 let selectedId: string | null = null;
 let selectedIds = new Set<string>();
@@ -82,7 +86,7 @@ app.innerHTML = `
     </section>
     <aside id="sidebar" class="sidebar" hidden>
       <div class="menu-heading"><span class="brand-mark">WB</span><div><strong>WALL BALL</strong><small id="mode-label">MATCH / CAPTURE THE FLAG</small></div></div>
-      <div class="menu-actions"><button id="new-match-button" type="button">Start / New Match</button><button id="touch-toggle" type="button">Touch Controls</button><button id="edit-button" type="button">Customize Arena</button><button id="controls-button" type="button">Customize Controls</button><button id="game-settings-button" type="button" aria-expanded="false">Game Tuning</button><button id="remote-button" type="button" aria-expanded="false">Remote Controller · Experimental</button><button id="appearance-button" type="button">Appearance</button><button id="reset-button" type="button">Return to Start</button><button id="fullscreen-button" type="button" aria-pressed="false">Enter Fullscreen</button></div>
+      <div class="menu-actions"><button id="new-match-button" type="button">Start / New Match</button><button id="touch-toggle" type="button">Touch Controls</button><button id="edit-button" type="button">Customize Arena</button><button id="controls-button" type="button">Customize Controls</button><button id="game-settings-button" type="button" aria-expanded="false">Game Tuning</button><button id="remote-button" type="button" aria-expanded="false">Remote Controller · Experimental</button><button id="appearance-button" type="button">Appearance</button><button id="camera-button" type="button">Camera</button><button id="reset-button" type="button">Return to Start</button><button id="fullscreen-button" type="button" aria-pressed="false">Enter Fullscreen</button></div>
       <div id="remote-panel" class="game-settings-panel remote-panel" hidden>
         <div class="section-kicker">REMOTE CONTROLLERS · EXPERIMENT</div>
         <p class="hint">This device runs the match. Red and Blue phones join separate seats in the same room; unused seats stay playable here.</p>
@@ -151,6 +155,17 @@ app.innerHTML = `
       <div id="developer-appearance-defaults" class="developer-controls" hidden><button id="save-appearance-default" class="editor-wide-button" type="button">Dev Save as Default</button><p class="hint">Writes the global preset for new devices.</p><p id="appearance-default-status" class="control-default-status" role="status" aria-live="polite"></p></div>
       <button id="reset-appearance" class="editor-wide-button" type="button">Reset Theme</button>
     </div>
+    <div id="camera-panel" class="editor-dock camera-dock" hidden>
+      <div class="editor-heading"><strong>CAMERA</strong><span>Drag to preview the arena live</span></div>
+      <label class="control-setting"><span>Tilt · side view ↔ overhead</span><output id="camera-pitch-value" for="camera-pitch"></output><input id="camera-pitch" type="range"></label>
+      <label class="control-setting"><span>Orbit · left ↔ right</span><output id="camera-yaw-value" for="camera-yaw"></output><input id="camera-yaw" type="range"></label>
+      <label class="control-setting"><span>Distance · close ↔ far</span><output id="camera-distance-value" for="camera-distance"></output><input id="camera-distance" type="range"></label>
+      <p class="hint">The view stays centered on the arena. Moving closer can crop its edges on some screens.</p>
+      <div class="editor-actions"><button id="reset-camera" type="button">Reset Default</button><button id="done-camera" type="button">Done</button></div>
+      <button id="save-camera-local" class="editor-wide-button" type="button">Save on This Device</button>
+      <p id="camera-local-status" class="control-default-status" role="status" aria-live="polite"></p>
+      <div id="developer-camera-defaults" class="developer-controls" hidden><button id="save-camera-default" class="editor-wide-button" type="button">Dev Save as Default</button><p class="hint">Writes the code preset for new devices after you commit it.</p><p id="camera-default-status" class="control-default-status" role="status" aria-live="polite"></p></div>
+    </div>
   </main>
   <div id="match-overlay" class="match-overlay" role="dialog" aria-live="polite" aria-label="Match state">
     <div id="ready-screen" class="match-card"><div class="section-kicker">CAPTURE THE FLAG</div><h2>WALL BALL</h2><div class="instruction-grid">
@@ -168,7 +183,7 @@ app.innerHTML = `
   <div id="rotate-overlay" class="rotate-overlay" hidden role="status" aria-live="polite"><div class="rotate-icon" aria-hidden="true">↻</div><strong>Rotate your device</strong><span>Wall Ball is designed for landscape play.</span></div>`;
 
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!;
-const view = new ArenaView(viewport, arena, appearance);
+const view = new ArenaView(viewport, arena, appearance, cameraTuning);
 const use3dModels = document.querySelector<HTMLInputElement>('#use-3d-models')!;
 use3dModels.checked = localStorage.getItem('wall-ball-use-3d-models') !== 'false';
 view.setModelsEnabled(use3dModels.checked);
@@ -183,6 +198,7 @@ const playPanel = document.querySelector<HTMLDivElement>('#play-panel')!;
 const editPanel = document.querySelector<HTMLDivElement>('#edit-panel')!;
 const controlsPanel = document.querySelector<HTMLDivElement>('#controls-panel')!;
 const appearancePanel = document.querySelector<HTMLDivElement>('#appearance-panel')!;
+const cameraPanel = document.querySelector<HTMLDivElement>('#camera-panel')!;
 const controlsButton = document.querySelector<HTMLButtonElement>('#controls-button')!;
 const selection = document.querySelector<HTMLElement>('#selection')!;
 const touchToggle = document.querySelector<HTMLButtonElement>('#touch-toggle')!;
@@ -270,6 +286,62 @@ document.querySelector<HTMLButtonElement>('#reset-appearance')!.addEventListener
   refreshAppearanceInputs();
 });
 
+const cameraSliders = [
+  { field: 'pitchDegrees', id: 'camera-pitch', format: (value: number) => `${value}°` },
+  { field: 'yawDegrees', id: 'camera-yaw', format: (value: number) => `${value > 0 ? '+' : ''}${value}°` },
+  { field: 'distanceScale', id: 'camera-distance', format: (value: number) => `${value.toFixed(2)}×` },
+] as const;
+function refreshCameraInputs(): void {
+  for (const { field, id, format } of cameraSliders) {
+    document.querySelector<HTMLInputElement>(`#${id}`)!.value = String(cameraTuning[field]);
+    document.querySelector<HTMLOutputElement>(`#${id}-value`)!.value = format(cameraTuning[field]);
+  }
+}
+for (const { field, id } of cameraSliders) {
+  const slider = document.querySelector<HTMLInputElement>(`#${id}`)!;
+  const range = CAMERA_TUNING_RANGES[field];
+  slider.min = String(range.min);
+  slider.max = String(range.max);
+  slider.step = String(range.step);
+  slider.addEventListener('input', () => {
+    cameraTuning = { ...cameraTuning, [field]: Number(slider.value) };
+    view.setCameraTuning(cameraTuning);
+    document.querySelector<HTMLElement>('#camera-local-status')!.textContent = 'Preview only · save to keep this view';
+    refreshCameraInputs();
+  });
+}
+refreshCameraInputs();
+document.querySelector<HTMLButtonElement>('#camera-button')!.addEventListener('click', () => {
+  if (editing) editButton.click();
+  if (editingControls) finishControlsCustomization();
+  cameraOpen = true;
+  setMenuOpen(false);
+  held.clear();
+  keyboardOwned.clear();
+  touchController.cancelAll();
+  game.cancelDeployAim('red');
+  game.cancelDeployAim('blue');
+  touchMove.red = { x: 0, z: 0 };
+  touchMove.blue = { x: 0, z: 0 };
+  refreshCameraInputs();
+  updateUi();
+});
+document.querySelector<HTMLButtonElement>('#done-camera')!.addEventListener('click', () => {
+  cameraOpen = false;
+  updateUi();
+});
+document.querySelector<HTMLButtonElement>('#reset-camera')!.addEventListener('click', () => {
+  cameraTuning = { ...DEFAULT_CAMERA_TUNING };
+  localStorage.removeItem(CAMERA_STORAGE_KEY);
+  view.setCameraTuning(cameraTuning);
+  refreshCameraInputs();
+  document.querySelector<HTMLElement>('#camera-local-status')!.textContent = 'Reset to the code default on this device.';
+});
+document.querySelector<HTMLButtonElement>('#save-camera-local')!.addEventListener('click', () => {
+  localStorage.setItem(CAMERA_STORAGE_KEY, JSON.stringify(cameraTuning));
+  document.querySelector<HTMLElement>('#camera-local-status')!.textContent = 'Saved on this device.';
+});
+
 function refreshAbilityControls(): void {
   for (const team of ['red', 'blue'] as const) {
     const visible = editingControls || game.powerUps.players[team].charges['mega-bomb'] > 0;
@@ -297,7 +369,7 @@ function updateUi(): void {
   status.innerHTML = phase === 'finished'
     ? `<span class="status-kicker">MATCH COMPLETE</span><strong>${game.match.winner?.toUpperCase()} WINS</strong>`
     : `<span class="status-kicker">${editing || editingControls ? 'EDITOR ACTIVE' : phase === 'ready' ? 'READY' : 'MATCH LIVE'}</span><strong>${editing ? 'Customize Arena' : editingControls ? 'Customize Controls' : phase === 'ready' ? 'Start when both players are ready.' : game.state.event}</strong>`;
-  matchOverlay.hidden = editing || editingControls || appearanceOpen || phase === 'playing';
+  matchOverlay.hidden = editing || editingControls || appearanceOpen || cameraOpen || phase === 'playing';
   readyScreen.hidden = phase !== 'ready';
   resultsScreen.hidden = phase !== 'finished';
   if (phase === 'finished') updateResultsUi();
@@ -308,6 +380,7 @@ function updateUi(): void {
   editPanel.hidden = !editing;
   controlsPanel.hidden = !editingControls;
   appearancePanel.hidden = !appearanceOpen;
+  cameraPanel.hidden = !cameraOpen;
   const wall = selectedWall();
   const depot = selectedDepot();
   const flag = selectedFlag();
@@ -352,7 +425,7 @@ function updateUi(): void {
     ? `${wall ? `${wall.type} wall · ${Math.round(wall.rotation * 180 / Math.PI)}°` : depot ? `${depot.type} depot` : region ? 'Power-up region' : 'Flag'} · X ${center.x.toFixed(2)} · Z ${center.z.toFixed(2)}`
     : `${selectedIds.size} selected · ${counts.map(([name, count]) => `${count} ${name}`).join(', ')}`;
   if (depot) document.querySelector<HTMLInputElement>('#depot-capacity')!.value = String(depot.capacity);
-  touchControls.hidden = editing || appearanceOpen || (!touchVisible && !editingControls) || menuOpen || portraitBlocked || (phase !== 'playing' && !editingControls);
+  touchControls.hidden = editing || appearanceOpen || cameraOpen || (!touchVisible && !editingControls) || menuOpen || portraitBlocked || (phase !== 'playing' && !editingControls);
   sidebar.hidden = !menuOpen;
   menuScrim.hidden = !menuOpen;
   menuButton.setAttribute('aria-expanded', String(menuOpen));
@@ -462,6 +535,7 @@ refreshMapChoices();
 function resetMatch(): void {
   touchController.cancelAll();
   keyboardOwned.clear();
+  view.resetPlayerAnimations();
   game = new Game(arena, mode, Math.random, gameSettings);
   lastTheftSequence = 0;
   toastUntil = 0;
@@ -713,6 +787,26 @@ if (import.meta.env.DEV) {
   document.querySelector<HTMLElement>('#developer-game-defaults')!.hidden = false;
   document.querySelector<HTMLElement>('#developer-arena-defaults')!.hidden = false;
   document.querySelector<HTMLElement>('#developer-appearance-defaults')!.hidden = false;
+  document.querySelector<HTMLElement>('#developer-camera-defaults')!.hidden = false;
+  document.querySelector<HTMLButtonElement>('#save-camera-default')!.addEventListener('click', async () => {
+    if (!await confirmCodeDefault('src/view/cameraDefaults.json', 'Save camera default?')) return;
+    const button = document.querySelector<HTMLButtonElement>('#save-camera-default')!;
+    const status = document.querySelector<HTMLElement>('#camera-default-status')!;
+    button.disabled = true;
+    status.textContent = 'Saving…';
+    sessionStorage.setItem(CAMERA_DEFAULT_SAVED_KEY, '1');
+    try {
+      const response = await fetch('/__dev/camera-defaults', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cameraTuning),
+      });
+      if (response.status === 404) throw new Error('Save route unavailable. Restart npm run dev, then reload this page.');
+      if (!response.ok) throw new Error(`Save failed (${response.status})`);
+      status.textContent = 'Saved in src/view/cameraDefaults.json. Commit the file to share this view.';
+    } catch (error) {
+      sessionStorage.removeItem(CAMERA_DEFAULT_SAVED_KEY);
+      status.textContent = error instanceof Error ? error.message : 'Could not save camera default';
+    } finally { button.disabled = false; }
+  });
   document.querySelector<HTMLButtonElement>('#save-appearance-default')!.addEventListener('click', async () => {
     if (!await confirmCodeDefault('src/view/appearanceDefaults.json', 'Save appearance default?')) return;
     const button = document.querySelector<HTMLButtonElement>('#save-appearance-default')!;
@@ -851,6 +945,7 @@ function setMenuOpen(open: boolean): void {
   menuOpen = open;
   if (open) {
     appearanceOpen = false;
+    cameraOpen = false;
     touchController.cancelAll();
     held.clear();
     keyboardOwned.clear();
@@ -1501,7 +1596,7 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 window.addEventListener('keydown', event => {
   if (isTextEntryTarget(event.target) || !document.querySelector<HTMLElement>('#map-name-dialog')!.hidden ||
       !document.querySelector<HTMLElement>('#developer-confirm')!.hidden) return;
-  if (menuOpen || appearanceOpen || portraitBlocked) {
+  if (menuOpen || appearanceOpen || cameraOpen || portraitBlocked) {
     if (menuOpen && event.code === 'Escape') setMenuOpen(false);
     return;
   }
@@ -1560,7 +1655,7 @@ window.addEventListener('keyup', event => {
     held.delete(event.code);
     return;
   }
-  if (menuOpen || appearanceOpen || portraitBlocked || editingControls || game.match.phase !== 'playing') {
+  if (menuOpen || appearanceOpen || cameraOpen || portraitBlocked || editingControls || game.match.phase !== 'playing') {
     keyboardOwned.delete(event.code);
     held.delete(event.code);
     return;
@@ -1636,10 +1731,10 @@ function frame(now: number): void {
     gameToast.textContent = `${team.toUpperCase()} CONTROLLER PAUSED · held controls released`;
     toastUntil = now + 3000;
   }
-  if (game.match.phase === 'playing' && !editing && !editingControls && !appearanceOpen) accumulator += Math.min((now - previous) / 1000, 0.1);
+  if (game.match.phase === 'playing' && !editing && !editingControls && !appearanceOpen && !cameraOpen) accumulator += Math.min((now - previous) / 1000, 0.1);
   else accumulator = 0;
   previous = now;
-  if (!editing && !editingControls && !appearanceOpen && game.match.phase === 'playing') {
+  if (!editing && !editingControls && !appearanceOpen && !cameraOpen && game.match.phase === 'playing') {
     while (accumulator >= 1 / 60) {
       game.update(1 / 60, input());
       accumulator -= 1 / 60;
@@ -1710,6 +1805,13 @@ if (sessionStorage.getItem(APPEARANCE_DEFAULT_SAVED_KEY) === '1') {
   appearanceOpen = true;
   document.querySelector<HTMLElement>('#appearance-default-status')!.textContent =
     'Appearance default saved. New devices use this theme after the file is committed.';
+  updateUi();
+}
+if (sessionStorage.getItem(CAMERA_DEFAULT_SAVED_KEY) === '1') {
+  sessionStorage.removeItem(CAMERA_DEFAULT_SAVED_KEY);
+  cameraOpen = true;
+  document.querySelector<HTMLElement>('#camera-default-status')!.textContent =
+    'Camera default saved. New devices use it after the file is committed. Reset Default applies it here.';
   updateUi();
 }
 if (justSavedBuiltInId && builtInMaps.some(map => map.id === justSavedBuiltInId)) {

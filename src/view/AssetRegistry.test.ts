@@ -23,8 +23,8 @@ test('uninstalled model keeps primitive fallback and toggle is safe', async () =
   const root = new THREE.Group();
   const fallback = new THREE.Group();
   root.add(fallback);
-  library.mount('player', root, fallback, { size: { width: 1, height: 2, depth: 1 } });
-  await library.load('player');
+  library.mount('stoneWall', root, fallback, { size: { width: 1, height: 2, depth: 1 } });
+  await library.load('stoneWall');
   assert.equal(root.children.length, 1);
   assert.equal(fallback.visible, true);
   library.setEnabled(false);

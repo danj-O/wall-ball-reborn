@@ -14,9 +14,14 @@ export interface ModelDefinition {
   fit: 'bounds' | 'uniform' | 'native';
   castShadow: boolean;
   receiveShadow: boolean;
-  /** Only materials named TEAM_ACCENT are recolored. */
+  /** Named TEAM_ACCENT materials or configured accent meshes receive team color. */
   teamAccent?: boolean;
-  animations?: { idle?: string; run?: string; airborne?: string };
+  /** For texture atlases without a separate accent material, recolor only these meshes. */
+  teamAccentMeshes?: readonly string[];
+  animations?: {
+    files?: readonly string[];
+    idle?: string; run?: string; takeoff?: string; airborne?: string; landing?: string;
+  };
 }
 
 const slot = (file: string, options: Partial<ModelDefinition> = {}): ModelDefinition => ({
@@ -25,7 +30,14 @@ const slot = (file: string, options: Partial<ModelDefinition> = {}): ModelDefini
 });
 
 export const ASSET_REGISTRY: Record<ModelId, ModelDefinition> = {
-  player: slot('characters/player.glb', { teamAccent: true, animations: { idle: 'idle', run: 'run', airborne: 'airborne' } }),
+  player: slot('characters/Knight.glb', {
+    file: 'characters/Knight.glb', fit: 'uniform', rotation: [0, 0, 0], offset: [0, 0, 0],
+    teamAccent: true, teamAccentMeshes: ['Knight_Cape', 'Knight_HelmetVisor'],
+    animations: {
+      files: ['characters/animations/Rig_Medium_General.glb', 'characters/animations/Rig_Medium_MovementBasic.glb'],
+      idle: 'Idle_A', run: 'Running_A', takeoff: 'Jump_Start', airborne: 'Jump_Idle', landing: 'Jump_Land',
+    },
+  }),
   woodWall: slot('walls/wood.glb'),
   stoneWall: slot('walls/stone.glb'),
   bomb: slot('projectiles/bomb.glb'),

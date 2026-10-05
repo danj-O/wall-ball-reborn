@@ -11,7 +11,7 @@ under `public/models/`:
 
 | Slot | Suggested file |
 | --- | --- |
-| player | `characters/player.glb` |
+| player | `characters/Knight.glb` |
 | woodWall, stoneWall | `walls/wood.glb`, `walls/stone.glb` |
 | bomb, megaBomb | `projectiles/bomb.glb`, `projectiles/mega-bomb.glb` |
 | redFlag, blueFlag | `objectives/red-flag.glb`, `objectives/blue-flag.glb` |
@@ -19,9 +19,32 @@ under `public/models/`:
 | speedPowerup, shieldPowerup, megaBombPowerup | `powerups/*.glb` |
 | scenery/tree, bush, rock, grass, fence | `environment/*.glb` |
 
-Only players, walls, and bomb projectiles are mounted in this phase. The other
-slots are reserved for later visual passes. No model files are bundled yet; the
-existing primitives remain visible.
+Players, walls, and bomb projectiles have model-capable wrappers. Only the
+player slot currently has a real model. The other slots keep their primitives.
+
+## First model: KayKit Knight
+
+The player slot uses `public/models/characters/Knight.glb`, with embedded
+texture, plus the two compatible `Rig_Medium` animation GLBs under
+`public/models/characters/animations/`. No separate texture file is needed.
+The imported files are from KayKit Adventurers 2.0 / Character Animations 1.1;
+their CC0 license texts are preserved in `docs/licenses/`.
+
+The Knight faces local +Z, so the registry uses zero rotation and offset.
+`PlayerVisual` fits it uniformly into a 1.45 × 1.82 × 1.15 visual box; game
+colliders and movement values are untouched. The cape and helmet visor receive
+the team color as solid material variants, while the rest of the atlas and
+character retain their original colors. Existing team ground rings remain.
+
+`Idle_A` and `Running_A` loop. Existing airborne state triggers `Jump_Start`,
+then `Jump_Idle`, and landing triggers `Jump_Land`; the one-shot transitions
+crossfade with the loops. Run playback follows measured ground distance per clip
+cycle, with a brief hold across empty render frames; slow starts and stops no
+longer run at a fixed minimum sprint cadence. This is visual-only tuning.
+Replay resets the animation state without creating another mixer; theme rebuilds
+stop actions and release the old mixer. The same semantic visual layer can later
+trigger `Throw`, `Hit_A`/`Hit_B`, and `PickUp` when presentation events are wired.
+No gameplay event or rule was added for them in this pass.
 
 ## Replacing a placeholder with a real model
 
@@ -39,12 +62,13 @@ X/Z and puts the asset bottom at the logical ground anchor, then applies
 offset. Export characters facing local **+Z**. A rotation correction belongs
 in the registry, not in movement code.
 
-Name just the tintable clothing/accessory material `TEAM_ACCENT` in the GLB.
-Only that material receives the Red/Blue color. A material variant is cached
-for each team color, and all other materials retain the artist's colors. For
-animation, name clips `idle`, `run`, and `airborne`, or change the registry's
-semantic name mapping. `PlayerVisual` owns the optional `AnimationMixer`;
-missing clips simply leave the model static.
+Name tintable clothing/accessory materials `TEAM_ACCENT` where the art permits.
+For shared texture atlases like Knight, list specific mesh names in the
+registry's `teamAccentMeshes`; only those meshes receive the team color. Material
+variants are cached. Animation clips may live inside the character GLB or in
+extra files listed under `animations.files`; map their names in the registry.
+`PlayerVisual` owns the optional `AnimationMixer`; missing clips leave the model
+static or use the available states.
 
 `ModelLibrary` loads each URL once, caches the glTF, clones its scene for each
 entity (including skinned meshes), and shares source geometry/materials. It

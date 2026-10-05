@@ -4,7 +4,7 @@ import type { GameState } from '../game/GameMode.ts';
 import { DEPLOYABLES, type DeployableId, type DeploymentState, type RuntimeBomb, type RuntimeWall, type Explosion } from '../game/deployables.ts';
 import type { EconomyState, RuntimeDepot } from '../game/economy.ts';
 import { POWER_UP_CONFIG, POWER_UPS, type PowerUpPickup, type PowerUpState } from '../game/powerups.ts';
-import { CAMERA_SETTINGS, frameArena } from './camera.ts';
+import { CAMERA_SETTINGS, frameArena, type CameraTuning, DEFAULT_CAMERA_TUNING } from './camera.ts';
 import { DEFAULT_APPEARANCE, type AppearanceTheme } from './appearance.ts';
 import { ModelLibrary } from './ModelLibrary.ts';
 import { PlayerVisual } from './PlayerVisual.ts';
@@ -22,7 +22,6 @@ export class ArenaView {
   private readonly modelLibrary = new ModelLibrary(import.meta.env.BASE_URL);
   private readonly playerVisuals = new Map<Team, PlayerVisual>();
   private lastVisualFrame = 0;
-  private readonly lastPlayerPositions = new Map<Team, Vec2>();
   private readonly arenaGroup = new THREE.Group();
   private readonly wallsGroup = new THREE.Group();
   private readonly depotsGroup = new THREE.Group();
@@ -48,15 +47,19 @@ export class ArenaView {
   private depotSignature = '';
   private selectedIds = new Set<string>();
   private currentArena: ArenaDefinition;
+  private cameraTuning: CameraTuning;
+  private readonly container: HTMLElement;
   private editorGhost: THREE.Mesh | null = null;
   private editorGhostTool: string | null = null;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
-  constructor(container: HTMLElement, arena: ArenaDefinition, theme: AppearanceTheme = DEFAULT_APPEARANCE) {
+  constructor(container: HTMLElement, arena: ArenaDefinition, theme: AppearanceTheme = DEFAULT_APPEARANCE, cameraTuning: CameraTuning = DEFAULT_CAMERA_TUNING) {
+    this.container = container;
     this.currentArena = arena;
     this.theme = theme;
+    this.cameraTuning = cameraTuning;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -115,7 +118,16 @@ export class ArenaView {
     this.resize(container, arena);
   }
 
+  setCameraTuning(tuning: CameraTuning): void {
+    this.cameraTuning = tuning;
+    this.resize(this.container, this.currentArena);
+  }
+
   setModelsEnabled(enabled: boolean): void { this.modelLibrary.setEnabled(enabled); }
+
+  resetPlayerAnimations(): void {
+    for (const visual of this.playerVisuals.values()) visual.reset();
+  }
 
   private material(color: THREE.ColorRepresentation, metalness = 0): THREE.MeshStandardMaterial {
     return new THREE.MeshStandardMaterial({ color, roughness: 0.73, metalness });
@@ -127,6 +139,7 @@ export class ArenaView {
 
   setTheme(theme: AppearanceTheme): void {
     this.theme = theme;
+    this.modelLibrary.clearTeamMaterials();
     this.scene.background = new THREE.Color(theme.outside);
     (this.tabletop.material as THREE.MeshStandardMaterial).color.set(theme.outside);
     this.sun.color.set(theme.keyLight);
@@ -850,11 +863,10 @@ export class ArenaView {
       marker.group.position.set(data.position.x, 0, data.position.z);
       const height = Math.max(0, data.height);
       const airborne = data.airborne || height > 0.08;
-      const previousPosition = this.lastPlayerPositions.get(team);
-      const moving = previousPosition ? Math.hypot(data.position.x - previousPosition.x, data.position.z - previousPosition.z) > 0.002 : false;
-      this.playerVisuals.get(team)?.setMovementState(airborne ? 'airborne' : moving ? 'run' : 'idle');
-      this.playerVisuals.get(team)?.update(visualDelta);
-      this.lastPlayerPositions.set(team, { ...data.position });
+      const visual = this.playerVisuals.get(team);
+      const horizontalSpeed = visual?.sampleGroundSpeed(data.position, now) ?? 0;
+      visual?.setMovementState(airborne ? 'airborne' : horizontalSpeed > 0.35 ? 'run' : 'idle', horizontalSpeed);
+      visual?.update(visualDelta);
       const carrying = data.carrying !== null;
       marker.ring.scale.setScalar(airborne ? Math.max(0.48, 0.72 / (1 + height * 0.38)) : carrying ? 1.42 : 1);
       const ringMaterial = marker.ring.material as THREE.MeshBasicMaterial;
@@ -943,7 +955,7 @@ export class ArenaView {
   private resize(container: HTMLElement, arena: ArenaDefinition): void {
     const width = Math.max(1, container.clientWidth);
     const height = Math.max(1, container.clientHeight);
-    frameArena(this.camera, arena, width, height);
+    frameArena(this.camera, arena, width, height, this.cameraTuning);
     this.renderer.setSize(width, height);
   }
 }

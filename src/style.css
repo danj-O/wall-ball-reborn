@@ -95,6 +95,10 @@ h1 span { color: #ed6059; }
 #play-panel .hint { margin-top: 24px; }
 .editor-dock { position: absolute; z-index: 15; top: calc(var(--tab-height) + var(--safe-top) + 10px); left: calc(var(--safe-left) + 10px); width: min(264px, 34vw); max-height: calc(100% - var(--safe-top) - var(--safe-bottom) - var(--tab-height) - 20px); padding: 12px; border: 2px solid #d1b778; border-radius: 10px; background: color-mix(in srgb, var(--ui-neutral), transparent 8%); box-shadow: 0 8px 24px #000a; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
 .appearance-dock { z-index: 19; left: auto; right: calc(var(--safe-right) + 10px); width: min(274px, 40vw); }
+.camera-dock { z-index: 19; left: auto; right: calc(var(--safe-right) + 10px); width: min(300px, 46vw); }
+.camera-dock .control-setting { margin: 13px 0; }
+.camera-dock input[type="range"] { min-height: 32px; touch-action: none; }
+.camera-dock #save-camera-local { min-height: 38px; border-color: #d1b778; font-weight: 800; }
 .appearance-dock #done-appearance { min-height: 38px; margin: 8px 0 10px; }
 .appearance-dock #reset-appearance { min-height: 38px; margin-top: 10px; }
 .appearance-setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 37px; color: #e7ede4; font-size: 11px; font-weight: 800; }
